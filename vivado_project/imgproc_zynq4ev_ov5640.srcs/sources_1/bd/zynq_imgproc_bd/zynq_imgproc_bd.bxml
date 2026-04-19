@@ -1,0 +1,170 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Root MajorVersion="0" MinorVersion="39">
+  <CompositeFile CompositeFileTopName="zynq_imgproc_bd" CanBeSetAsTop="false" CanDisplayChildGraph="true">
+    <Description>Composite Fileset</Description>
+    <Generation Name="SYNTHESIS" State="GENERATED" Timestamp="1776490706"/>
+    <Generation Name="IMPLEMENTATION" State="GENERATED" Timestamp="1776490706"/>
+    <Generation Name="SIMULATION" State="GENERATED" Timestamp="1776490706"/>
+    <Generation Name="HW_HANDOFF" State="GENERATED" Timestamp="1776490706"/>
+    <FileCollection Name="SOURCES" Type="SOURCES">
+      <File Name="ip\zynq_imgproc_bd_zynq_ultra_ps_e_0_0\zynq_imgproc_bd_zynq_ultra_ps_e_0_0.xci" Type="IP">
+        <Instance HierarchyPath="zynq_ultra_ps_e_0"/>
+        <Properties IsEditable="false" IsVisible="true" Timestamp="1776490655" IsTrackable="true" IsStatusTracked="true"/>
+        <Library Name="xil_defaultlib"/>
+        <UsedIn Val="SYNTHESIS"/>
+        <UsedIn Val="IMPLEMENTATION"/>
+        <UsedIn Val="SIMULATION"/>
+      </File>
+      <File Name="ip\zynq_imgproc_bd_rst_ps8_0_150m_0\zynq_imgproc_bd_rst_ps8_0_150m_0.xci" Type="IP">
+        <Instance HierarchyPath="rst_ps8_0_150m"/>
+        <Properties IsEditable="false" IsVisible="true" Timestamp="1776490655" IsTrackable="true" IsStatusTracked="true"/>
+        <Library Name="xil_defaultlib"/>
+        <UsedIn Val="SYNTHESIS"/>
+        <UsedIn Val="IMPLEMENTATION"/>
+        <UsedIn Val="SIMULATION"/>
+      </File>
+      <File Name="ip\zynq_imgproc_bd_mipi_csi2_rx_subsystem_0_0\zynq_imgproc_bd_mipi_csi2_rx_subsystem_0_0.xci" Type="IP">
+        <Instance HierarchyPath="mipi_csi2_rx_subsystem_0"/>
+        <Properties IsEditable="false" IsVisible="true" Timestamp="1776490655" IsTrackable="true" IsStatusTracked="true"/>
+        <Library Name="xil_defaultlib"/>
+        <UsedIn Val="SYNTHESIS"/>
+        <UsedIn Val="IMPLEMENTATION"/>
+        <UsedIn Val="SIMULATION"/>
+      </File>
+      <File Name="ip\zynq_imgproc_bd_axi_iic_0_0\zynq_imgproc_bd_axi_iic_0_0.xci" Type="IP">
+        <Instance HierarchyPath="axi_iic_0"/>
+        <Properties IsEditable="false" IsVisible="true" Timestamp="1776490655" IsTrackable="true" IsStatusTracked="true"/>
+        <Library Name="xil_defaultlib"/>
+        <UsedIn Val="SYNTHESIS"/>
+        <UsedIn Val="IMPLEMENTATION"/>
+        <UsedIn Val="SIMULATION"/>
+      </File>
+      <File Name="ip\zynq_imgproc_bd_axi_gpio_0_0\zynq_imgproc_bd_axi_gpio_0_0.xci" Type="IP">
+        <Instance HierarchyPath="axi_gpio_0"/>
+        <Properties IsEditable="false" IsVisible="true" Timestamp="1776490655" IsTrackable="true" IsStatusTracked="true"/>
+        <Library Name="xil_defaultlib"/>
+        <UsedIn Val="SYNTHESIS"/>
+        <UsedIn Val="IMPLEMENTATION"/>
+        <UsedIn Val="SIMULATION"/>
+      </File>
+      <File Name="ip\zynq_imgproc_bd_axi_sc_cfg_0\zynq_imgproc_bd_axi_sc_cfg_0.xci" Type="IP">
+        <Instance HierarchyPath="axi_sc_cfg"/>
+        <Properties IsEditable="false" IsVisible="true" Timestamp="1776490655" IsTrackable="true" IsStatusTracked="true"/>
+        <Library Name="xil_defaultlib"/>
+        <UsedIn Val="SYNTHESIS"/>
+        <UsedIn Val="IMPLEMENTATION"/>
+        <UsedIn Val="SIMULATION"/>
+      </File>
+      <File Name="ip\zynq_imgproc_bd_axi_sc_hp0_0\zynq_imgproc_bd_axi_sc_hp0_0.xci" Type="IP">
+        <Instance HierarchyPath="axi_sc_hp0"/>
+        <Properties IsEditable="false" IsVisible="true" Timestamp="1776490656" IsTrackable="true" IsStatusTracked="true"/>
+        <Library Name="xil_defaultlib"/>
+        <UsedIn Val="SYNTHESIS"/>
+        <UsedIn Val="IMPLEMENTATION"/>
+        <UsedIn Val="SIMULATION"/>
+      </File>
+      <File Name="ip\zynq_imgproc_bd_axi_sc_hp1_0\zynq_imgproc_bd_axi_sc_hp1_0.xci" Type="IP">
+        <Instance HierarchyPath="axi_sc_hp1"/>
+        <Properties IsEditable="false" IsVisible="true" Timestamp="1776490656" IsTrackable="true" IsStatusTracked="true"/>
+        <Library Name="xil_defaultlib"/>
+        <UsedIn Val="SYNTHESIS"/>
+        <UsedIn Val="IMPLEMENTATION"/>
+        <UsedIn Val="SIMULATION"/>
+      </File>
+      <File Name="ip\zynq_imgproc_bd_axi_dma_eth_0\zynq_imgproc_bd_axi_dma_eth_0.xci" Type="IP">
+        <Instance HierarchyPath="axi_dma_eth"/>
+        <Properties IsEditable="false" IsVisible="true" Timestamp="1776490657" IsTrackable="true" IsStatusTracked="true"/>
+        <Library Name="xil_defaultlib"/>
+        <UsedIn Val="SYNTHESIS"/>
+        <UsedIn Val="IMPLEMENTATION"/>
+        <UsedIn Val="SIMULATION"/>
+      </File>
+      <File Name="ip\zynq_imgproc_bd_axi_sc_hp2_0\zynq_imgproc_bd_axi_sc_hp2_0.xci" Type="IP">
+        <Instance HierarchyPath="axi_sc_hp2"/>
+        <Properties IsEditable="false" IsVisible="true" Timestamp="1776490657" IsTrackable="true" IsStatusTracked="true"/>
+        <Library Name="xil_defaultlib"/>
+        <UsedIn Val="SYNTHESIS"/>
+        <UsedIn Val="IMPLEMENTATION"/>
+        <UsedIn Val="SIMULATION"/>
+      </File>
+      <File Name="ip\zynq_imgproc_bd_clk_wiz_0_0\zynq_imgproc_bd_clk_wiz_0_0.xci" Type="IP">
+        <Instance HierarchyPath="clk_wiz_0"/>
+        <Properties IsEditable="false" IsVisible="true" Timestamp="1776490657" IsTrackable="true" IsStatusTracked="true"/>
+        <Library Name="xil_defaultlib"/>
+        <UsedIn Val="SYNTHESIS"/>
+        <UsedIn Val="IMPLEMENTATION"/>
+        <UsedIn Val="SIMULATION"/>
+      </File>
+      <File Name="ip\zynq_imgproc_bd_clk_wiz_mipi_ref_0\zynq_imgproc_bd_clk_wiz_mipi_ref_0.xci" Type="IP">
+        <Instance HierarchyPath="clk_wiz_mipi_ref"/>
+        <Properties IsEditable="false" IsVisible="true" Timestamp="1776490657" IsTrackable="true" IsStatusTracked="true"/>
+        <Library Name="xil_defaultlib"/>
+        <UsedIn Val="SYNTHESIS"/>
+        <UsedIn Val="IMPLEMENTATION"/>
+        <UsedIn Val="SIMULATION"/>
+      </File>
+      <File Name="ip\zynq_imgproc_bd_rst_pclk_0_0\zynq_imgproc_bd_rst_pclk_0_0.xci" Type="IP">
+        <Instance HierarchyPath="rst_pclk_0"/>
+        <Properties IsEditable="false" IsVisible="true" Timestamp="1776490657" IsTrackable="true" IsStatusTracked="true"/>
+        <Library Name="xil_defaultlib"/>
+        <UsedIn Val="SYNTHESIS"/>
+        <UsedIn Val="IMPLEMENTATION"/>
+        <UsedIn Val="SIMULATION"/>
+      </File>
+      <File Name="ip\zynq_imgproc_bd_xlslice_rst_0\zynq_imgproc_bd_xlslice_rst_0.xci" Type="IP">
+        <Instance HierarchyPath="xlslice_rst"/>
+        <Properties IsEditable="false" IsVisible="true" Timestamp="1776490657" IsTrackable="true" IsStatusTracked="true"/>
+        <Library Name="xil_defaultlib"/>
+        <UsedIn Val="SYNTHESIS"/>
+        <UsedIn Val="IMPLEMENTATION"/>
+        <UsedIn Val="SIMULATION"/>
+      </File>
+      <File Name="ip\zynq_imgproc_bd_xlslice_pwdn_0\zynq_imgproc_bd_xlslice_pwdn_0.xci" Type="IP">
+        <Instance HierarchyPath="xlslice_pwdn"/>
+        <Properties IsEditable="false" IsVisible="true" Timestamp="1776490657" IsTrackable="true" IsStatusTracked="true"/>
+        <Library Name="xil_defaultlib"/>
+        <UsedIn Val="SYNTHESIS"/>
+        <UsedIn Val="IMPLEMENTATION"/>
+        <UsedIn Val="SIMULATION"/>
+      </File>
+      <File Name="synth\zynq_imgproc_bd.v" Type="Verilog">
+        <Properties IsEditable="false" IsVisible="true" Timestamp="0" IsTrackable="false" IsStatusTracked="false"/>
+        <Library Name="xil_defaultlib"/>
+        <UsedIn Val="SYNTHESIS"/>
+        <UsedIn Val="IMPLEMENTATION"/>
+      </File>
+      <File Name="sim\zynq_imgproc_bd.v" Type="Verilog">
+        <Properties IsEditable="false" IsVisible="true" Timestamp="0" IsTrackable="false" IsStatusTracked="false"/>
+        <Library Name="xil_defaultlib"/>
+        <UsedIn Val="SIMULATION"/>
+      </File>
+      <File Name="zynq_imgproc_bd_ooc.xdc" Type="XDC">
+        <Properties IsEditable="false" IsVisible="true" Timestamp="0" IsTrackable="false" IsStatusTracked="false"/>
+        <Library Name="xil_defaultlib"/>
+        <UsedIn Val="SYNTHESIS"/>
+        <UsedIn Val="IMPLEMENTATION"/>
+        <UsedIn Val="OUT_OF_CONTEXT"/>
+      </File>
+      <File Name="hw_handoff\zynq_imgproc_bd.hwh" Type="HwHandoff">
+        <Properties IsEditable="false" IsVisible="true" Timestamp="0" IsTrackable="false" IsStatusTracked="false"/>
+        <Library Name="xil_defaultlib"/>
+        <UsedIn Val="HW_HANDOFF"/>
+      </File>
+      <File Name="hw_handoff\zynq_imgproc_bd_bd.tcl">
+        <Properties IsEditable="false" IsVisible="true" Timestamp="0" IsTrackable="false" IsStatusTracked="false"/>
+        <Library Name="xil_defaultlib"/>
+        <UsedIn Val="HW_HANDOFF"/>
+      </File>
+      <File Name="synth\zynq_imgproc_bd.hwdef">
+        <Properties IsEditable="false" IsVisible="true" Timestamp="0" IsTrackable="false" IsStatusTracked="false"/>
+        <Library Name="xil_defaultlib"/>
+        <UsedIn Val="HW_HANDOFF"/>
+      </File>
+      <File Name="sim\zynq_imgproc_bd.protoinst">
+        <Properties IsEditable="false" IsVisible="true" Timestamp="0" IsTrackable="false" IsStatusTracked="false"/>
+        <Library Name="xil_defaultlib"/>
+        <UsedIn Val="SIMULATION"/>
+      </File>
+    </FileCollection>
+  </CompositeFile>
+</Root>

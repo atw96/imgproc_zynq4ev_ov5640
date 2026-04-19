@@ -1,0 +1,82 @@
+{
+   "ActiveEmotionalView":"Default View",
+   "Default View_ScaleFactor":"1.01162",
+   "Default View_TopLeft":"-349,62",
+   "ExpandedHierarchyInLayout":"",
+   "guistr":"# # String gsaved with Nlview 7.0r6  2020-01-29 bk=1.5227 VDI=41 GEI=36 GUI=JA:9.0 non-TLS
+#  -string -flagsOSRD
+preplace port mipi_phy_if -pg 1 -lvl 0 -x -10 -y 760 -defaultsOSRD
+preplace port VIDEO_OUT -pg 1 -lvl 6 -x 2120 -y 770 -defaultsOSRD
+preplace port M_AXIL_CFG -pg 1 -lvl 6 -x 2120 -y 550 -defaultsOSRD
+preplace port S_AXI_HP0 -pg 1 -lvl 0 -x -10 -y 220 -defaultsOSRD
+preplace port S_AXI_HP1 -pg 1 -lvl 0 -x -10 -y 60 -defaultsOSRD
+preplace port ETH_AXIS_S2MM -pg 1 -lvl 0 -x -10 -y 560 -defaultsOSRD
+preplace port pl_clk -pg 1 -lvl 6 -x 2120 -y 1160 -defaultsOSRD
+preplace port pclk -pg 1 -lvl 6 -x 2120 -y 1180 -defaultsOSRD
+preplace port frame_done_irq -pg 1 -lvl 0 -x -10 -y 400 -defaultsOSRD
+preplace port ov5640_mclk -pg 1 -lvl 6 -x 2120 -y 470 -defaultsOSRD
+preplace port iic_scl_i -pg 1 -lvl 0 -x -10 -y 160 -defaultsOSRD
+preplace port iic_scl_o -pg 1 -lvl 6 -x 2120 -y 290 -defaultsOSRD
+preplace port iic_scl_t -pg 1 -lvl 6 -x 2120 -y 310 -defaultsOSRD
+preplace port iic_sda_i -pg 1 -lvl 0 -x -10 -y 480 -defaultsOSRD
+preplace port iic_sda_o -pg 1 -lvl 6 -x 2120 -y 350 -defaultsOSRD
+preplace port iic_sda_t -pg 1 -lvl 6 -x 2120 -y 370 -defaultsOSRD
+preplace portBus rst_n -pg 1 -lvl 6 -x 2120 -y 940 -defaultsOSRD
+preplace portBus pclk_resetn -pg 1 -lvl 6 -x 2120 -y 1320 -defaultsOSRD
+preplace portBus ov5640_reset_n -pg 1 -lvl 6 -x 2120 -y 710 -defaultsOSRD
+preplace portBus ov5640_pwdn -pg 1 -lvl 6 -x 2120 -y 610 -defaultsOSRD
+preplace inst zynq_ultra_ps_e_0 -pg 1 -lvl 3 -x 1040 -y 330 -defaultsOSRD
+preplace inst rst_ps8_0_150m -pg 1 -lvl 4 -x 1580 -y 1060 -defaultsOSRD
+preplace inst mipi_csi2_rx_subsystem_0 -pg 1 -lvl 4 -x 1580 -y 820 -defaultsOSRD
+preplace inst axi_iic_0 -pg 1 -lvl 4 -x 1580 -y 330 -defaultsOSRD
+preplace inst axi_gpio_0 -pg 1 -lvl 4 -x 1580 -y 630 -defaultsOSRD
+preplace inst axi_sc_cfg -pg 1 -lvl 3 -x 1040 -y 590 -defaultsOSRD
+preplace inst axi_sc_hp0 -pg 1 -lvl 2 -x 550 -y 240 -defaultsOSRD
+preplace inst axi_sc_hp1 -pg 1 -lvl 2 -x 550 -y 80 -defaultsOSRD
+preplace inst axi_dma_eth -pg 1 -lvl 1 -x 210 -y 580 -defaultsOSRD
+preplace inst axi_sc_hp2 -pg 1 -lvl 2 -x 550 -y 580 -defaultsOSRD
+preplace inst clk_wiz_0 -pg 1 -lvl 4 -x 1580 -y 1310 -defaultsOSRD
+preplace inst clk_wiz_mipi_ref -pg 1 -lvl 3 -x 1040 -y 850 -defaultsOSRD
+preplace inst rst_pclk_0 -pg 1 -lvl 5 -x 1930 -y 1280 -defaultsOSRD
+preplace inst xlslice_rst -pg 1 -lvl 5 -x 1930 -y 710 -defaultsOSRD
+preplace inst xlslice_pwdn -pg 1 -lvl 5 -x 1930 -y 610 -defaultsOSRD
+preplace netloc zynq_ultra_ps_e_0_pl_clk0 1 0 6 40 680 380 390 710 150 1370 1160 NJ 1160 NJ
+preplace netloc clk_wiz_mipi_ref_clk_out1 1 3 1 NJ 840
+preplace netloc clk_wiz_0_clk_out1 1 4 2 1760 1180 NJ
+preplace netloc zynq_ultra_ps_e_0_pl_clk1 1 3 3 1390J 470 NJ 470 NJ
+preplace netloc zynq_ultra_ps_e_0_pl_resetn0 1 3 2 1360 1240 1750
+preplace netloc rst_ps8_0_150m_interconnect_aresetn 1 1 4 400 490 690 490 NJ 490 1750
+preplace netloc clk_wiz_0_locked 1 4 1 N 1320
+preplace netloc rst_pclk_0_peripheral_aresetn 1 5 1 NJ 1320
+preplace netloc rst_ps8_0_150m_peripheral_aresetn 1 0 6 30 480 NJ 480 NJ 480 1400 940 1760 940 NJ
+preplace netloc axi_dma_eth_s2mm_introut 1 1 2 390J 420 N
+preplace netloc frame_done_irq_1 1 0 3 NJ 400 NJ 400 NJ
+preplace netloc axi_gpio_0_gpio_io_o 1 4 1 1760 610n
+preplace netloc xlslice_rst_Dout 1 5 1 NJ 710
+preplace netloc xlslice_pwdn_Dout 1 5 1 NJ 610
+preplace netloc iic_scl_i_1 1 0 5 10J 210 370J 320 680J 130 NJ 130 1760
+preplace netloc axi_iic_0_scl_o 1 4 2 NJ 290 NJ
+preplace netloc axi_iic_0_scl_t 1 4 2 NJ 310 NJ
+preplace netloc iic_sda_i_1 1 0 5 10J 330 NJ 330 690J 140 NJ 140 1750
+preplace netloc axi_iic_0_sda_o 1 4 2 NJ 350 NJ
+preplace netloc axi_iic_0_sda_t 1 4 2 NJ 370 NJ
+preplace netloc axi_sc_hp1_M00_AXI 1 2 1 700 80n
+preplace netloc mipi_csi2_rx_subsystem_0_video_out 1 4 2 NJ 770 NJ
+preplace netloc mipi_phy_if_1 1 0 4 NJ 760 NJ 760 NJ 760 NJ
+preplace netloc zynq_ultra_ps_e_0_M_AXI_HPM0_FPD 1 2 2 730 180 1330
+preplace netloc axi_sc_cfg_M01_AXI 1 3 1 1380 310n
+preplace netloc axi_sc_cfg_M02_AXI 1 3 1 1390 590n
+preplace netloc axi_sc_cfg_M03_AXI 1 3 1 1350 610n
+preplace netloc axi_sc_cfg_M04_AXI 1 0 4 20 160 NJ 160 NJ 160 1340
+preplace netloc axi_sc_cfg_M00_AXI 1 3 3 NJ 550 NJ 550 NJ
+preplace netloc ETH_AXIS_S2MM_1 1 0 1 NJ 560
+preplace netloc axi_sc_hp0_M00_AXI 1 2 1 N 240
+preplace netloc S_AXI_HP0_1 1 0 2 NJ 220 NJ
+preplace netloc S_AXI_HP1_1 1 0 2 NJ 60 NJ
+preplace netloc axi_sc_hp2_M00_AXI 1 2 1 720 280n
+preplace netloc axi_dma_eth_M_AXI_S2MM 1 1 1 N 560
+levelinfo -pg 1 -10 210 550 1040 1580 1930 2120
+pagesize -pg 1 -db -bbox -sgen -160 0 2310 1380
+"
+}
+0

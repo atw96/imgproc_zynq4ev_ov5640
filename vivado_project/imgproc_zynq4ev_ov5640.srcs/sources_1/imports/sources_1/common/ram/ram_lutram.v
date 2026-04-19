@@ -25,7 +25,7 @@ module ram_lutram #(
     parameter DATA_W    = 8,
     parameter DEPTH     = 256,
     parameter ADDR_W    = $clog2(DEPTH),
-    parameter SYNC_READ = 0     // 0:异步读  1:同步读
+    parameter SYNC_READ = 0     // 0: async read  1: sync read
 )(
     // [see README for description]
     input  wire              clk,
@@ -34,10 +34,10 @@ module ram_lutram #(
     input  wire [DATA_W-1:0] wdata,
 
     // [see README for description]
-    input  wire              re,            // 同步读时使用
+    input  wire              re,            // Used for synchronous read
     input  wire [ADDR_W-1:0] raddr,
     output wire [DATA_W-1:0] rdata,
-    output wire              rdata_vld      // 同步读：re后1T有效；异步读：恒高
+    output wire              rdata_vld      // Sync read: valid 1T after re; async read: always high
 );
 
 // [see README for description]
@@ -55,7 +55,7 @@ generate
     if (SYNC_READ == 0) begin : gen_async_rd
         // [see README for description]
         assign rdata     = mem[raddr];
-        assign rdata_vld = 1'b1;        // 数据随地址立即有效
+        assign rdata_vld = 1'b1;        // Data valid immediately with address
     end else begin : gen_sync_rd
         // [see README for description]
         reg [DATA_W-1:0] rdata_r;

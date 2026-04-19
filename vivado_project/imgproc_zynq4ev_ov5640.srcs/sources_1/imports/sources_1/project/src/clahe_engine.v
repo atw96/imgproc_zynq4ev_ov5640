@@ -339,8 +339,8 @@ module clahe_engine #(
                     cdf_wa_p4  <= cdf_wa_p3;
 
                     // ── Pipe4 shift dividing method replace the denom
-                    // denom ≈ TILE_PIXELS = 1024，log2(1024)=10
-                    // norm_val = prod >> NORM_FRAC  (NORM_FRAC=10，在参数里已定义)
+                    // denom ~ TILE_PIXELS = 1024, log2(1024)=10
+                    // norm_val = prod >> NORM_FRAC  (NORM_FRAC=10, defined in parameters)
                     cdf_wr_data <= cdf_prod_r[PIXEL_W-1+NORM_FRAC : NORM_FRAC];
                     cdf_wr_addr <= cdf_wa_p4;
                     cdf_we      <= cdf_we_p4;

@@ -1,38 +1,38 @@
 // zynq_display_ctrl.v
-// 显示控制：VGA 时序发生器 + AXI4-HP0 帧缓存写（双缓冲 A/B）
-// 目标：Zynq UltraScale+ MPSoC（本工程 xczu4ev + AXU4EVB）
+// Display control: VGA timing generator + AXI4-HP0 frame-buffer writes (double buffer A/B)
+// Target: Zynq UltraScale+ MPSoC (this project: xczu4ev + AXU4EVB)
 //
-// 功能概述:
-//   接收后级像素流（ddr3_pixel_buf 输出），并行完成：
-//     1) 通过 AXI4-HP0 以 INCR burst 写入 PS DDR 帧缓存（双缓冲 page A/B）
-//     2) 产生 VGA/HDMI 用的 hsync、vsync、de，并在 pclk 域输出 vga_pixel
+// Functional overview:
+//   Accepts downstream pixel stream (ddr3_pixel_buf output) and in parallel:
+//     1) Writes PS DDR frame buffer via AXI4-HP0 with INCR bursts (double-buffer pages A/B)
+//     2) Generates hsync, vsync, de for VGA/HDMI and outputs vga_pixel in the pclk domain
 //
-//   PS 侧由 VDMA 或裸机驱动从 DDR 读帧缓存；frame_done_irq 表示一帧写完，
-//   buf_sel 指示刚写完的页（0=A, 1=B）。
+//   PS side reads the frame buffer via VDMA or bare-metal driver; frame_done_irq marks
+//   end of one frame write; buf_sel indicates the page just written (0=A, 1=B).
 //
-// 数据通路（文字框图）:
-//   s_pix_data -> line FIFO(BRAM) -> AXI 64b 打包写 -> S_AXI_HP0 -> DDR4
+// Data path (text diagram):
+//   s_pix_data -> line FIFO(BRAM) -> AXI 64b packed writes -> S_AXI_HP0 -> DDR4
 //              -> display FIFO(BRAM, pclk) -> vga_timing_gen -> vga_hsync/vsync/de, vga_pixel
 //   frame_done_irq ----------------------------------------------------> PS GIC
 //
-// 双缓冲:
-//   buf_sel=0: 正在写 fb_addr_a；PS 可从 fb_addr_b 读
-//   buf_sel=1: 正在写 fb_addr_b；PS 可从 fb_addr_a 读
-//   在 frame_done_irq 处切换；建议在下一 VSYNC 更新 VDMA 地址以减少撕裂。
+// Double buffering:
+//   buf_sel=0: writing fb_addr_a; PS may read fb_addr_b
+//   buf_sel=1: writing fb_addr_b; PS may read fb_addr_a
+//   Switches at frame_done_irq; update VDMA address on next VSYNC to reduce tearing.
 //
-// FIFO 说明:
-//   Line FIFO: pl_clk 域缓存，深度 LINE_FIFO_DEPTH（默认 2048），像素零扩展到 32b 便于 64b AXI 打包。
-//   Display FIFO: 本实现为 pclk 单时钟同步 FIFO；若 pl_clk 与 pclk 异步，应改为异步 FIFO。
+// FIFO notes:
+//   Line FIFO: pl_clk-domain buffer, depth LINE_FIFO_DEPTH (default 2048), pixels zero-extended to 32b for 64b AXI packing.
+//   Display FIFO: this implementation is a pclk single-clock sync FIFO; if pl_clk and pclk are asynchronous, use an async FIFO.
 //
 // AXI4-HP0:
-//   数据位宽 64；突发 INCR；长度 BURST_LEN（默认 16）；每像素存 32b（FB_PIX_W=32）。
+//   64-bit data; INCR bursts; length BURST_LEN (default 16); 32b stored per pixel (FB_PIX_W=32).
 //
 // VGA:
-//   vga_timing_gen 由 res_sel[1:0] 选择 2K/1080p/720p。
+//   vga_timing_gen selects 2K/1080p/720p via res_sel[1:0].
 //
-// 资源（典型）:
+// Resources (typical):
 //   2x RAMB36: line FIFO + display FIFO
-//   ~2 DSP: 像素打包
+//   ~2 DSP: pixel packing
 // =============================================================================
 `timescale 1ns / 1ps
 

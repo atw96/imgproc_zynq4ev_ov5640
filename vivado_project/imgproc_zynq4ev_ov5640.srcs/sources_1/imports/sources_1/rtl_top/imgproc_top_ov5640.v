@@ -1,8 +1,8 @@
-// imgproc_top_ov5640.v -- Vivado 综合顶层
-// 板卡: ALINX AXU4EVB (xczu4ev-sfvc784-2-i)，传感器: AV5641 (OV5640 MIPI CSI-2)
+// imgproc_top_ov5640.v -- Vivado synthesis top
+// Board: ALINX AXU4EVB (xczu4ev-sfvc784-2-i), sensor: AV5641 (OV5640 MIPI CSI-2)
 //
-// 模块层次:
-//   imgproc_top_ov5640 (本文件)
+// Module hierarchy:
+//   imgproc_top_ov5640 (this file)
 //     +-- zynq_imgproc_bd_wrapper  [BD: PS + MIPI RX + I2C + GPIO]
 //     +-- u_axil_cfg   (axil_cfg_reg)
 //     +-- u_sensor_if  (sensor_if, MIPI_MODE=1)
@@ -15,19 +15,19 @@
 //     +-- u_display    (zynq_display_ctrl)
 //     +-- u_frame_eth  (project/src/frame_eth_tx.v → BD AXI DMA S2MM)
 //
-// BD 对外接口由 create_bd_ov5640.tcl 定义端口名。
-//   BD -> 本 RTL:
-//     pl_clk, rst_n          系统时钟 ~150 MHz / 复位 (pl_clk 域)
-//     pclk, pclk_resetn      HDMI 像素时钟 148.5 MHz / 复位 (MMCM)
+// BD-facing port names are defined in create_bd_ov5640.tcl.
+//   BD -> this RTL:
+//     pl_clk, rst_n          System clock ~150 MHz / reset (pl_clk domain)
+//     pclk, pclk_resetn      HDMI pixel clock 148.5 MHz / reset (MMCM)
 //     VIDEO_OUT_tdata[19:0], VIDEO_OUT_tvalid, VIDEO_OUT_tlast,
 //     VIDEO_OUT_tuser, VIDEO_OUT_tready
-//     M_AXIL_CFG_* (AXI-Lite Master -> ISP 配置从机)
-//   本 RTL -> BD:
-//     S_AXI_HP0_* (AXI4 只写 64-bit -> display_ctrl)
-//     S_AXI_HP1_* (AXI4 读写 64-bit -> ddr3_pixel_buf)
+//     M_AXIL_CFG_* (AXI-Lite Master -> ISP config slave)
+//   This RTL -> BD:
+//     S_AXI_HP0_* (AXI4 write-only 64-bit -> display_ctrl)
+//     S_AXI_HP1_* (AXI4 read/write 64-bit -> ddr3_pixel_buf)
 //     frame_done_irq
-//     ETH_AXIS_S2MM_* — PL frame_eth_tx → BD AXI DMA S2MM（送 PS DDR）
-//   物理引脚:
+//     ETH_AXIS_S2MM_* — PL frame_eth_tx -> BD AXI DMA S2MM (to PS DDR)
+//   Physical pins:
 //     mipi_phy_if_*, iic_scl_*, iic_sda_*
 //     ov5640_reset_n, ov5640_pwdn, ov5640_mclk
 //     hdmi_d[23:0], hdmi_clk, hdmi_hsync, hdmi_vsync, hdmi_de
@@ -37,7 +37,7 @@
 
 module imgproc_top_ov5640 #(
     parameter RAW_W    = 10,   // OV5640 RAW10
-    parameter PIXEL_W  = 13,   // 内部 Q0.13 定点像素
+    parameter PIXEL_W  = 13,   // Internal Q0.13 fixed-point pixel
     parameter AXI_DW   = 64,
     parameter AXI_AW   = 32,
     parameter LINE_LEN = 1920, // OV5640 1080p
@@ -45,28 +45,28 @@ module imgproc_top_ov5640 #(
     parameter IMG_H    = 1080
 )(
     // -------------------------------------------------------------------------
-    // 物理引脚（PACKAGE_PIN / IOSTANDARD 见 XDC）
+    // Physical pins (PACKAGE_PIN / IOSTANDARD in XDC)
     // -------------------------------------------------------------------------
 
-    // MIPI CSI-2 差分接口（接 BD mipi_phy_if）
+    // MIPI CSI-2 differential interface (to BD mipi_phy_if)
     input  wire        mipi_phy_if_clk_p,
     input  wire        mipi_phy_if_clk_n,
     input  wire [1:0]  mipi_phy_if_data_p,
     input  wire [1:0]  mipi_phy_if_data_n,
 
-    // I2C 双向总线（IOBUF 在本顶层）
+    // I2C bidirectional bus (IOBUF in this top)
     inout  wire        iic_scl_io,
     inout  wire        iic_sda_io,
 
-    // OV5640 控制 GPIO
+    // OV5640 control GPIO
     //output wire        ov5640_reset_n,
     output wire        ov5640_pwdn,
     output wire        ov5640_mclk,    // 24 MHz from PS FCLK_CLK1
 
     // -------------------------------------------------------------------------
-    // HDMI 输出 -> ADV7511 并行 24-bit RGB (Bank 66, LVCMOS33)
-    //   pclk = 148.5 MHz (MMCM)，1920x1080@60Hz 灰度显示
-    //   灰度映射: R=G=B = Y[12:5]
+    // HDMI out -> ADV7511 parallel 24-bit RGB (Bank 66, LVCMOS33)
+    //   pclk = 148.5 MHz (MMCM), 1920x1080@60Hz grayscale
+    //   Grayscale map: R=G=B = Y[12:5]
     // -------------------------------------------------------------------------
     output wire                  hdmi_clk,
     output wire                  hdmi_hsync,
@@ -75,43 +75,43 @@ module imgproc_top_ov5640 #(
     output wire [23:0]           hdmi_d
 
     // -------------------------------------------------------------------------
-    // 状态输出（可选引出顶层）
+    // Status outputs (optional top-level taps)
     // -------------------------------------------------------------------------
     //output wire [31:0]           dead_pixel_cnt_out,
     //output wire                  buf_sel_out
 );
 
     // =========================================================================
-    // A. 内部信号声明与 BD / RTL 互连
+    // A. Internal signals and BD / RTL interconnect
     // =========================================================================
 
-    // A1. 时钟与复位（来自 BD）
-    wire        pl_clk;       // ~150 MHz (PS FCLK_CLK0，主 AXI / ISP 时钟)
-    wire        rst_n;        // 低有效复位 (pl_clk 域 peripheral_aresetn)
-    wire        pclk;         // 148.5 MHz HDMI 像素时钟 (MMCM clk_wiz 输出)
-    wire        pclk_resetn;  // 低有效复位 (pclk 域，MMCM locked 后有效)
+    // A1. Clocks and resets (from BD)
+    wire        pl_clk;       // ~150 MHz (PS FCLK_CLK0, main AXI / ISP clock)
+    wire        rst_n;        // Active-low reset (pl_clk domain peripheral_aresetn)
+    wire        pclk;         // 148.5 MHz HDMI pixel clock (MMCM clk_wiz output)
+    wire        pclk_resetn;  // Active-low reset (pclk domain, valid after MMCM locked)
 
-    // A8. 显示控制器 VGA 中间信号 (display_ctrl -> 顶层再送 HDMI)
+    // A8. Display controller VGA intermediate signals (display_ctrl -> top -> HDMI)
     wire                  vga_hsync_i;
     wire                  vga_vsync_i;
     wire                  vga_de_i;
     wire [PIXEL_W-1:0]    vga_pixel_i;
     wire                  vga_active_i;
 
-    // A2. MIPI AXI-Stream（来自 BD VIDEO_OUT）
-    // Vivado 为 Master AXIS 生成的信号名:
+    // A2. MIPI AXI-Stream (from BD VIDEO_OUT)
+    // Vivado-generated Master AXIS signal names:
     //   VIDEO_OUT_tdata, VIDEO_OUT_tvalid, VIDEO_OUT_tready,
     //   VIDEO_OUT_tlast, VIDEO_OUT_tuser
     wire [19:0] mipi_tdata_w;
     wire        mipi_tvalid_w;
     wire        mipi_tlast_w;
     wire        mipi_tuser_w;
-    // tready: sensor_if 恒接 1（不反压 MIPI）
+    // tready: sensor_if tied to 1 (no back-pressure on MIPI)
     wire        mipi_tready_w;
     assign mipi_tready_w = 1'b1;
 
-    // A3. AXI4-Lite 配置（BD M_AXIL_CFG Master -> 本模块从机）
-    // 对 ISP 侧为 AXI4-Lite 从机
+    // A3. AXI4-Lite config (BD M_AXIL_CFG Master -> slave in this module)
+    // Slave to ISP side is AXI4-Lite
     wire [31:0] s_axil_awaddr;
     wire        s_axil_awvalid;
     wire        s_axil_awready;
@@ -130,7 +130,7 @@ module imgproc_top_ov5640 #(
     wire        s_axil_rvalid;
     wire        s_axil_rready;
 
-    // A4. AXI4 HP0：display_ctrl Master -> BD Slave（写帧缓存）
+    // A4. AXI4 HP0: display_ctrl Master -> BD Slave (frame buffer writes)
     wire [AXI_AW-1:0]   m_axi_hp0_awaddr;
     wire [7:0]           m_axi_hp0_awlen;
     wire [2:0]           m_axi_hp0_awsize;
@@ -146,7 +146,7 @@ module imgproc_top_ov5640 #(
     wire                 m_axi_hp0_bvalid;
     wire                 m_axi_hp0_bready;
 
-    // A5. AXI4 HP1：ddr3_pixel_buf Master -> BD Slave（DDR 乒乓）
+    // A5. AXI4 HP1: ddr3_pixel_buf Master -> BD Slave (DDR ping-pong)
     wire [AXI_AW-1:0]   m_axi_hp1_awaddr;
     wire [7:0]           m_axi_hp1_awlen;
     wire [2:0]           m_axi_hp1_awsize;
@@ -172,25 +172,25 @@ module imgproc_top_ov5640 #(
     wire                 m_axi_hp1_rvalid;
     wire                 m_axi_hp1_rlast;
     wire                 m_axi_hp1_rready;
-    // AXI DMA S2MM 信号
+    // AXI DMA S2MM signals
     wire [7:0]           eth_axis_tdata;
     wire                 eth_axis_tvalid;
     wire                 eth_axis_tready;   
     wire                 eth_axis_tlast;
     wire [15:0]          eth_tx_frame_cnt;
 
-    // A6. I2C 三态（BD 内 IOBUF，本顶层再包一层）
+    // A6. I2C tristate (IOBUF in BD, wrapped again at this top)
     wire iic_scl_i_w, iic_scl_o_w, iic_scl_t_w;
     wire iic_sda_i_w, iic_sda_o_w, iic_sda_t_w;
 
-    // A7. 中断 / 状态
+    // A7. Interrupt / status
     wire frame_done_irq_w;
     wire buf_sel_w;
     wire [31:0] dead_cnt_w;
 
     // =========================================================================
-    // B. IOBUF：I2C 双向 IO
-    //    T=1 高阻输入；T=0 输出 iic_*_o_w
+    // B. IOBUF: I2C bidirectional IO
+    //    T=1 high-Z input; T=0 drive iic_*_o_w
     // =========================================================================
     IOBUF u_iic_scl_buf (
         .IO (iic_scl_io),
@@ -206,18 +206,18 @@ module imgproc_top_ov5640 #(
     );
 
     // =========================================================================
-    // C. Block Design 封装例化
-    //    端口名与 create_bd_ov5640.tcl 中 BD 一致
-    //    AXI 命名: <接口>_<信号>
+    // C. Block Design wrapper instantiation
+    //    Port names match BD in create_bd_ov5640.tcl
+    //    AXI naming: <interface>_<signal>
     // =========================================================================
     zynq_imgproc_bd_wrapper u_bd (
-        // MIPI 差分物理接口
+        // MIPI differential physical interface
         .mipi_phy_if_clk_p  (mipi_phy_if_clk_p),
         .mipi_phy_if_clk_n  (mipi_phy_if_clk_n),
         .mipi_phy_if_data_p (mipi_phy_if_data_p),
         .mipi_phy_if_data_n (mipi_phy_if_data_n),
 
-        // 时钟与复位
+        // Clocks and resets
         .pl_clk             (pl_clk),
         .rst_n              (rst_n),
         .pclk               (pclk),
@@ -230,13 +230,13 @@ module imgproc_top_ov5640 #(
         .VIDEO_OUT_tlast    (mipi_tlast_w),
         .VIDEO_OUT_tuser    (mipi_tuser_w),
 
-        // PL -> BD：AXI DMA S2MM（以太网帧字节流）
+        // PL -> BD: AXI DMA S2MM (Ethernet frame byte stream)
         .ETH_AXIS_S2MM_tdata  (eth_axis_tdata),
         .ETH_AXIS_S2MM_tvalid (eth_axis_tvalid),
         .ETH_AXIS_S2MM_tready (eth_axis_tready),
         .ETH_AXIS_S2MM_tlast  (eth_axis_tlast),
 
-        // AXI-Lite 配置 Master
+        // AXI-Lite config Master
         .M_AXIL_CFG_awaddr  (s_axil_awaddr),
         .M_AXIL_CFG_awvalid (s_axil_awvalid),
         .M_AXIL_CFG_awready (s_axil_awready),
@@ -255,7 +255,7 @@ module imgproc_top_ov5640 #(
         .M_AXIL_CFG_rvalid  (s_axil_rvalid),
         .M_AXIL_CFG_rready  (s_axil_rready),
 
-        // AXI4 HP0 Slave（写帧缓存）
+        // AXI4 HP0 Slave (frame buffer writes)
         .S_AXI_HP0_awaddr   (m_axi_hp0_awaddr),
         .S_AXI_HP0_awlen    (m_axi_hp0_awlen),
         .S_AXI_HP0_awsize   (m_axi_hp0_awsize),
@@ -271,7 +271,7 @@ module imgproc_top_ov5640 #(
         .S_AXI_HP0_bvalid   (m_axi_hp0_bvalid),
         .S_AXI_HP0_bready   (m_axi_hp0_bready),
 
-        // AXI4 HP1 Slave（DDR 乒乓）
+        // AXI4 HP1 Slave (DDR ping-pong)
         .S_AXI_HP1_awaddr   (m_axi_hp1_awaddr),
         .S_AXI_HP1_awlen    (m_axi_hp1_awlen),
         .S_AXI_HP1_awsize   (m_axi_hp1_awsize),
@@ -298,7 +298,7 @@ module imgproc_top_ov5640 #(
         .S_AXI_HP1_rlast    (m_axi_hp1_rlast),
         .S_AXI_HP1_rready   (m_axi_hp1_rready),
 
-        // 帧完成中断
+        // Frame-done interrupt
         .frame_done_irq     (frame_done_irq_w),
 
         // OV5640 GPIO
@@ -306,7 +306,7 @@ module imgproc_top_ov5640 #(
         .ov5640_pwdn        (ov5640_pwdn),
         .ov5640_mclk        (ov5640_mclk),
 
-        // I2C 三态
+        // I2C tristate
         .iic_scl_i          (iic_scl_i_w),
         .iic_scl_o          (iic_scl_o_w),
         .iic_scl_t          (iic_scl_t_w),
@@ -316,7 +316,7 @@ module imgproc_top_ov5640 #(
     );
 
     // =========================================================================
-    // D. AXI4-Lite 配置寄存器 (axil_cfg_reg)
+    // D. AXI4-Lite config registers (axil_cfg_reg)
     // =========================================================================
     localparam NUM_WR_REGS = 10;
     localparam NUM_RD_REGS = 2;
@@ -355,7 +355,7 @@ module imgproc_top_ov5640 #(
         .status_i         (cfg_status)
     );
 
-    // 寄存器域解析
+    // Register field decode
     wire [31:0] r_fb_addr_a   = cfg_wreg[0*32 +: 32];
     wire [31:0] r_fb_addr_b   = cfg_wreg[1*32 +: 32];
     wire [31:0] r_ctrl        = cfg_wreg[2*32 +: 32];
@@ -377,9 +377,9 @@ module imgproc_top_ov5640 #(
     wire [12:0] sy_lut_wd     = r_sy_lut[12:0];
 
     // =========================================================================
-    // E. 传感器：MIPI AXI-Stream -> Q0.13 像素流
-    //    MIPI_MODE=1: 从 mipi_tdata[19:0] 解包 2 lane RAW10
-    //    Q0.13: P = {RAW10[9:0], 3'b0}（左移 3 位 max=8184)
+    // E. Sensor: MIPI AXI-Stream -> Q0.13 pixel stream
+    //    MIPI_MODE=1: unpack 2-lane RAW10 from mipi_tdata[19:0]
+    //    Q0.13: P = {RAW10[9:0], 3'b0} (left-shift 3 bits, max=8184)
     // =========================================================================
     wire [PIXEL_W-1:0] si_raw_data;
     wire               si_raw_valid;
@@ -391,24 +391,24 @@ module imgproc_top_ov5640 #(
         .PIXEL_W   (PIXEL_W),
         .IMG_W     (IMG_W),
         .IMG_H     (IMG_H),
-        .BAYER_FMT (0),        // RGGB (OV5640 默认)
+        .BAYER_FMT (0),        // RGGB (OV5640 default)
         .VSYNC_POL (0),
         .HREF_POL  (0),
-        .MIPI_MODE (1)         // MIPI CSI-2 模式
+        .MIPI_MODE (1)         // MIPI CSI-2 mode
     ) u_sensor_if (
-        .pclk        (pl_clk),  // MIPI：pl_clk 解包时钟
+        .pclk        (pl_clk),  // MIPI: unpack clock is pl_clk
         .rst_n       (rst_n),
-        // DVP 未用接 0
+        // DVP unused, tie to 0
         .dvp_data    ({RAW_W{1'b0}}),
         .dvp_href    (1'b0),
         .dvp_vsync   (1'b0),
         .dvp_pclk_en (1'b0),
-        // MIPI AXI4-Stream 输入
+        // MIPI AXI4-Stream input
         .mipi_tdata  (mipi_tdata_w),
         .mipi_tvalid (mipi_tvalid_w),
         .mipi_tlast  (mipi_tlast_w),
         .mipi_tuser  (mipi_tuser_w),
-        // 像素流输出 (Q0.13, pl_clk 域)
+        // Pixel stream output (Q0.13, pl_clk domain)
         .m_raw_data  (si_raw_data),
         .m_raw_valid (si_raw_valid),
         .m_raw_hsync (si_raw_hsync),
@@ -421,7 +421,7 @@ module imgproc_top_ov5640 #(
     );
 
     // =========================================================================
-    // F. ISP 预处理（流水线）
+    // F. ISP preprocessing (pipeline)
     // =========================================================================
     wire [PIXEL_W-1:0] preproc_Y;
     wire [15:0]         preproc_CbCr;
@@ -456,7 +456,7 @@ module imgproc_top_ov5640 #(
     );
 
     // =========================================================================
-    // G. 11 行行缓冲
+    // G. 11-line line buffer
     // =========================================================================
     localparam NUM_LINES = 11;
     wire [PIXEL_W*NUM_LINES-1:0] col_pixels;
@@ -487,7 +487,7 @@ module imgproc_top_ov5640 #(
     wire [PIXEL_W-1:0] centre_pix = col_pixels[5*PIXEL_W +: PIXEL_W];
 
     // =========================================================================
-    // H. 11x11 局部细节增强
+    // H. 11x11 local detail enhancement
     // =========================================================================
     wire [PIXEL_W-1:0] enh_Y;
     wire               enh_valid;
@@ -515,7 +515,7 @@ module imgproc_top_ov5640 #(
     );
 
     // =========================================================================
-    // I. 双边滤波 5x5
+    // I. 5x5 bilateral filter
     // =========================================================================
     wire [PIXEL_W-1:0] bilat_Y;
     wire               bilat_valid;
@@ -560,7 +560,7 @@ module imgproc_top_ov5640 #(
         .m_pix_valid (clahe_valid)
     );
 
-    // K. DDR 乒乓 + AXI4 HP1
+    // K. DDR ping-pong + AXI4 HP1
     // =========================================================================
     wire [PIXEL_W-1:0] disp_pix;
     wire               disp_pix_valid;
@@ -580,7 +580,7 @@ module imgproc_top_ov5640 #(
         .buf_base_addr (r_ddr3_base),
         .m_pix_data    (disp_pix),
         .m_pix_valid   (disp_pix_valid),
-        // AXI4 HP1 写通道
+        // AXI4 HP1 write channel
         .m_axi_awaddr  (m_axi_hp1_awaddr),
         .m_axi_awlen   (m_axi_hp1_awlen),
         .m_axi_awsize  (m_axi_hp1_awsize),
@@ -595,7 +595,7 @@ module imgproc_top_ov5640 #(
         .m_axi_bresp   (m_axi_hp1_bresp),
         .m_axi_bvalid  (m_axi_hp1_bvalid),
         .m_axi_bready  (m_axi_hp1_bready),
-        // AXI4 HP1 读通道
+        // AXI4 HP1 read channel
         .m_axi_araddr  (m_axi_hp1_araddr),
         .m_axi_arlen   (m_axi_hp1_arlen),
         .m_axi_arsize  (m_axi_hp1_arsize),
@@ -614,7 +614,7 @@ module imgproc_top_ov5640 #(
     );
 
     // =========================================================================
-    // K2. 以太网帧发送（新增）：从 ISP 像素流抽取，打包送 PS AXI DMA
+    // K2. Ethernet frame transmit (added): tap ISP pixel stream, pack to PS AXI DMA
     // =========================================================================
     frame_eth_tx #(
         .PIXEL_W  (PIXEL_W),
@@ -624,22 +624,22 @@ module imgproc_top_ov5640 #(
     ) u_frame_eth (
         .clk            (pl_clk),
         .rst_n          (rst_n),
-        // 复用 CLAHE 输出像素流（与 ddr3_pixel_buf 并联）
+        // Reuse CLAHE output pixel stream (parallel with ddr3_pixel_buf)
         .s_pix_data     (clahe_Y),
         .s_pix_valid    (clahe_valid),
-        // AXI-Stream → BD 内 AXI DMA
+        // AXI-Stream -> AXI DMA inside BD
         .m_axis_tdata   (eth_axis_tdata),
         .m_axis_tvalid  (eth_axis_tvalid),
         .m_axis_tready  (eth_axis_tready),
         .m_axis_tlast   (eth_axis_tlast),
-        // 抽帧：r_ctrl[7:4] 控制发送帧率（默认每2帧发1帧）
+        // Frame skip: r_ctrl[7:4] sets transmit rate (default: send 1 of every 2 frames)
         .frame_skip     (r_ctrl[7:4]),
         .tx_frame_cnt   (eth_tx_frame_cnt)
     );
 
 
     // =========================================================================
-    // L. 显示控制：AXI4 HP0 写 DDR + VGA 时序
+    // L. Display control: AXI4 HP0 DDR writes + VGA timing
     // =========================================================================
     zynq_display_ctrl #(
         .PIXEL_W   (PIXEL_W),
@@ -651,7 +651,7 @@ module imgproc_top_ov5640 #(
         .FB_PIX_W  (32)
     ) u_display (
         .clk            (pl_clk),
-        .pclk           (pclk),     // 148.5 MHz MMCM 像素时钟
+        .pclk           (pclk),     // 148.5 MHz MMCM pixel clock
         .pclk_rst_n     (pclk_resetn),
         .rst_n          (rst_n),
         .s_pix_data     (disp_pix),
@@ -660,7 +660,7 @@ module imgproc_top_ov5640 #(
         .fb_addr_b      (r_fb_addr_b),
         .cfg_start      (cfg_start),
         .res_sel        (res_sel),
-        // AXI4 HP0 写通道
+        // AXI4 HP0 write channel
         .m_axi_awaddr   (m_axi_hp0_awaddr),
         .m_axi_awlen    (m_axi_hp0_awlen),
         .m_axi_awsize   (m_axi_hp0_awsize),
@@ -675,7 +675,7 @@ module imgproc_top_ov5640 #(
         .m_axi_bresp    (m_axi_hp0_bresp),
         .m_axi_bvalid   (m_axi_hp0_bvalid),
         .m_axi_bready   (m_axi_hp0_bready),
-        // VGA 中间信号（再经 pclk 寄存送 HDMI）
+        // VGA intermediate signals (registered on pclk to HDMI)
         .vga_hsync      (vga_hsync_i),
         .vga_vsync      (vga_vsync_i),
         .vga_de         (vga_de_i),
@@ -686,7 +686,7 @@ module imgproc_top_ov5640 #(
     );
 
     // =========================================================================
-    // M. 状态回读寄存器
+    // M. Status readback registers
     // =========================================================================
     assign cfg_status = {
         {31{1'b0}}, buf_sel_w,
@@ -694,13 +694,13 @@ module imgproc_top_ov5640 #(
     };
 
     // =========================================================================
-    // N. HDMI：灰度 Y[12:5] -> RGB24 -> ADV7511
-    //    ADV7511：24-bit 并行 RGB + 同步
-    //    灰度图: R=G=B=luma8=vga_pixel_i[12:5]
-    //    pclk 直连 hdmi_clk；ADV7511 边沿采样
+    // N. HDMI: grayscale Y[12:5] -> RGB24 -> ADV7511
+    //    ADV7511: 24-bit parallel RGB + sync
+    //    Grayscale: R=G=B=luma8=vga_pixel_i[12:5]
+    //    pclk directly drives hdmi_clk; ADV7511 samples on clock edge
     // =========================================================================
-    // pclk 域输出寄存：满足 IOB/源同步时序
-    // 可接受 1 拍延迟：同步信号与数据同拍寄存
+    // pclk-domain output registers: meet IOB / source-synchronous timing
+    // One-cycle latency acceptable: sync and data registered in same cycle
     wire [7:0] hdmi_luma_w = vga_pixel_i[PIXEL_W-1 -: 8];
 
     reg [23:0] hdmi_d_r;
@@ -727,7 +727,7 @@ module imgproc_top_ov5640 #(
     assign hdmi_de    = hdmi_de_r;
 
     // =========================================================================
-    // 观测：frame_done_irq 由 u_display -> BD -> PS GIC
+    // Observe: frame_done_irq from u_display -> BD -> PS GIC
     // =========================================================================
     //assign buf_sel_out         = buf_sel_w;
     //assign dead_pixel_cnt_out  = dead_cnt_w_int;

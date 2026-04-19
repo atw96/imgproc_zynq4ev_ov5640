@@ -1,30 +1,33 @@
 # =============================================================================
 # imgproc_axu4evb_ov5640.xdc
-# 目标器件 : xczu4ev-sfvc784-2-i (ALINX AXU4EVB + ACU4EV 核心板)
-# 顶层模块  : imgproc_top_ov5640
-# 摄像头   : ALINX AV5641 (OV5640, MIPI CSI-2 2-lane)
+# Target device: xczu4ev-sfvc784-2-i (ALINX AXU4EVB + ACU4EV SOM)
+# Top module  : imgproc_top_ov5640
+# Camera      : ALINX AV5641 (OV5640, MIPI CSI-2 2-lane)
 #
-# --- 关于 doc/*.pdf 原理图与“能否从 PDF 自动读出球号” ---
-# 本地 PDF 用文本抽取工具可以读到网络名（如 MIPI_CLK_P、CAM_SCL）以及核心板
-# 上 PS_MIOxx 与封装球的对应表；但底板原理图里 PL 走线常与符号/标注顺序打乱，
-# 抽取文本无法可靠地把“网络名 ↔ PACKAGE_PIN”自动对齐，这不是“网上没有”，而是
-# PDF 不适合机器解析引脚表。请务必在 PDF 阅读器里 Ctrl+F 搜索网络名，对照芯片
-# 引脚或核心板 Bank65/66 页上的 IO_L*_*_65<球号> 再核对下面 PL 的 PACKAGE_PIN。
+# --- doc/*.pdf schematics and "can PDF text extraction recover ball numbers?" ---
+# Local PDF text extraction can read net names (e.g. MIPI_CLK_P, CAM_SCL) and the
+# PS_MIOxx-to-ball tables on the SOM; carrier schematics often scramble PL routing
+# vs symbol order, so extracted text cannot reliably auto-align "net name <-> PACKAGE_PIN".
+# This is not "missing on the web" but PDF being a poor machine-readable pin table.
+# Always Ctrl+F net names in a PDF viewer, cross-check device pins or SOM Bank65/66
+# pages (IO_L*_*_65<ball>) against the PL PACKAGE_PINs below.
 #
-# 已从 PDF 文本核对（ACU4EV 核心板 MIO 表 + AXU4EVB-P 网络名存在性）的 PS 侧配置
-# 写在 create_bd_ov5640.tcl 头部注释；此处为 PL 侧 PACKAGE_PIN。
+# PS-side settings already cross-checked from PDF text (ACU4EV SOM MIO table +
+# AXU4EVB-P net-name presence) are documented in create_bd_ov5640.tcl header comments;
+# this file lists PL PACKAGE_PINs.
 #
-# 下列 PL 球号与同仓库 imgproc_mpsoc_4ev 中 imgproc_zu4ev.xdc（J20 FPC 方案）一致，
-# 若你手边原理图修订版与之下不符，以原理图搜索网络名为准修改本文件。
+# The PL ball numbers below match imgproc_zu4ev.xdc in repo imgproc_mpsoc_4ev
+# (J20 FPC). If your schematic revision differs, search net names in the schematic
+# and edit this file accordingly.
 #
-# 端口说明:
+# Port summary:
 #   - MIPI: mipi_phy_if_clk_p/n, mipi_phy_if_data_p/n[1:0]
-#   - I2C:  iic_scl_io, iic_sda_io (IOBUF 在 RTL)
+#   - I2C:  iic_scl_io, iic_sda_io (IOBUF in RTL)
 #   - GPIO: ov5640_reset_n, ov5640_pwdn, ov5640_mclk
 # =============================================================================
 
 # =============================================================================
-# 1. MIPI CSI-2 差分引脚 (HP Bank 65, VCCIO=1.8V, 与参考 XDC 一致)
+# 1. MIPI CSI-2 differential pins (HP Bank 65, VCCIO=1.8V, same as reference XDC)
 # =============================================================================
 set_property PACKAGE_PIN  W8    [get_ports mipi_phy_if_clk_p]
 set_property PACKAGE_PIN  Y8    [get_ports mipi_phy_if_clk_n]
@@ -41,15 +44,15 @@ set_property PACKAGE_PIN  V8    [get_ports {mipi_phy_if_data_n[1]}]
 set_property IOSTANDARD   MIPI_DPHY_DCI [get_ports {mipi_phy_if_data_p[1]}]
 set_property IOSTANDARD   MIPI_DPHY_DCI [get_ports {mipi_phy_if_data_n[1]}]
 
-# 1b. MIPI 时钟说明（SupportLevel=1 架构变更后无需 CLOCK_BUFFER_TYPE 约束）：
-#   - MIPI IP 内含 PLL，CLKOUTPHY 路径由 IP 自身 XDC 约束，Vivado 自动保证物理可达。
-#   - clk_wiz_mipi_ref 只提供 200 MHz 参考到 dphy_clk_200M（普通 BUFG 路径），合法。
-#   - 旧的 set_property CLOCK_BUFFER_TYPE none [get_pins ...] 已删除：
-#     该属性在 Vivado 2020.1 中不适用于 pin 对象（Netlist 29-69），故移除。
+# 1b. MIPI clock notes (SupportLevel=1: no CLOCK_BUFFER_TYPE constraint needed):
+#   - MIPI IP includes PLL; CLKOUTPHY is constrained by the IP XDC; Vivado ensures physical reachability.
+#   - clk_wiz_mipi_ref only feeds 200 MHz ref to dphy_clk_200M (plain BUFG path), which is legal.
+#   - Legacy set_property CLOCK_BUFFER_TYPE none [get_pins ...] removed:
+#     That property is not applicable to pin objects in Vivado 2020.1 (Netlist 29-69), so it was dropped.
 
 
 # =============================================================================
-# 2. I2C (PL, LVCMOS33, 与参考 XDC 一致)
+# 2. I2C (PL, LVCMOS33, same as reference XDC)
 # =============================================================================
 set_property PACKAGE_PIN  Y9     [get_ports iic_scl_io]
 set_property IOSTANDARD   LVCMOS33    [get_ports iic_scl_io]
@@ -58,7 +61,7 @@ set_property IOSTANDARD   LVCMOS33    [get_ports iic_sda_io]
 
 
 # =============================================================================
-# 3. OV5640 控制信号 (LVCMOS33, 与参考 XDC 一致)
+# 3. OV5640 control signals (LVCMOS33, same as reference XDC)
 # =============================================================================
 #set_property PACKAGE_PIN  A20    [get_ports ov5640_reset_n]
 #set_property IOSTANDARD   LVCMOS33    [get_ports ov5640_reset_n]
@@ -71,41 +74,41 @@ set_property IOSTANDARD   LVCMOS33    [get_ports ov5640_mclk]
 
 
 # =============================================================================
-# 4. 异步路径约束
+# 4. Asynchronous path constraints
 # =============================================================================
-# GPIO 控制信号为软件异步驱动
+# GPIO control driven asynchronously by software
 #set_false_path -to [get_ports ov5640_reset_n]
 set_false_path -to [get_ports ov5640_pwdn]
 set_false_path -to [get_ports ov5640_mclk]
 
 
 # =============================================================================
-# 5. 异步时钟组 (须与 timing_summary 中 Clock 名一致)
-#    impl_1 曾报: Inter-clock clk_pl_0 <-> clk_out1_zynq_imgproc_bd_clk_wiz_0_0
-#    Requirement ~0.017ns — 两钟假对齐所致假违规；CDC 由 fifo_async 完成。
+# 5. Asynchronous clock domains (names must match timing_summary Clock names)
+#    impl_1 reported: Inter-clock clk_pl_0 <-> clk_out1_zynq_imgproc_bd_clk_wiz_0_0
+#    Requirement ~0.017ns — false violation from false clock alignment; CDC handled by fifo_async.
 #
-#    注: MIPI RXBYTECLKHS 由 MIPI CSI-2 RX Subsystem IP 内部自动创建约束，
-#    Vivado 在 IP 层 XDC 中已声明其为 generated clock，无需在此重复引用。
-#    若实现后 report_clock_interaction 仍显示 MIPI 相关跨域，可在 Tcl 中执行
-#    get_clocks -filter {NAME =~ *RXBYTECLKHS*} 获取实际时钟名后单独添加。
+#    Note: MIPI RXBYTECLKHS constraints are auto-created inside MIPI CSI-2 RX Subsystem IP;
+#    Vivado declares it as generated clock in the IP XDC; no need to repeat here.
+#    If report_clock_interaction still shows MIPI-related crossings after implementation, run
+#    get_clocks -filter {NAME =~ *RXBYTECLKHS*} in Tcl to get the real clock name and add constraints.
 # =============================================================================
 # ─────────────────────────────────────────────────────────────────────────────
-# 跨时钟域豁免：clk_pl_0 (150 MHz) ↔ clk_out1_zynq_imgproc_bd_clk_wiz_0_0 (148.5 MHz)
+# CDC exception: clk_pl_0 (150 MHz) <-> clk_out1_zynq_imgproc_bd_clk_wiz_0_0 (148.5 MHz)
 #
-# 背景：两钟共源于同一 MMCM，Vivado 视为主-生成时钟对，在 t≈660ns 处的最近上升沿间隔
-# 仅 0.067ns，导致 50 条跨域假违规。实际 CDC 由 u_display/u_disp_fifo 异步 FIFO 安全处理。
+# Background: both from same MMCM; Vivado treats them as primary/generated pair; nearest rising
+# edges at t~660ns are only 0.067ns apart, causing ~50 false CDC violations. Real CDC is safe in
+# u_display/u_disp_fifo async FIFOs.
 #
-# 为何不用 set_clock_groups:
-#   Vivado 2020.1 对主时钟与其 MMCM 生成子时钟的 set_clock_groups -asynchronous
-#   有已知限制——约束被静默忽略（不报错、不生效）。
-#   必须改用 set_false_path，对该时钟对在实现阶段直接生效。
+# Why not set_clock_groups:
+#   Vivado 2020.1 has a known limitation: set_clock_groups -asynchronous between a primary clock
+#   and its MMCM-generated child is silently ignored (no error, no effect).
+#   Use set_false_path on the pair so it takes effect in implementation.
 #
-# 为何不用 if + llength guard:
-#   1) 旧版 XDC 使用 catch，Vivado XDC 不支持 catch（CRITICAL WARNING [Designutils 20-1307]），
-#      整段 set_false_path 被跳过，导致 50 条跨域路径全部违例。
-#   2) llength 对 Vivado collection 对象兼容性不可靠。
-#   3) 本 XDC 已设 PROCESSING_ORDER=LATE，此时 IP 时钟已全部创建，
-#      get_clocks 一定能找到目标时钟，无需 guard。
+# Why not if + llength guard:
+#   1) Old XDC used catch; Vivado XDC does not support catch (CRITICAL WARNING [Designutils 20-1307]),
+#      so the whole set_false_path block was skipped and all ~50 CDC paths failed.
+#   2) llength on Vivado collection objects is unreliable.
+#   3) This XDC sets PROCESSING_ORDER=LATE; by then IP clocks exist, get_clocks finds targets — no guard needed.
 # ─────────────────────────────────────────────────────────────────────────────
 set_false_path -from [get_clocks clk_pl_0] \
                -to   [get_clocks clk_out1_zynq_imgproc_bd_clk_wiz_0_0]
@@ -119,7 +122,7 @@ set_false_path -from [get_clocks clk_hdmi_fwd] \
 
 
 # =============================================================================
-# 6. Floorplan 约束 (适配 ZU4EV 8 个时钟区域)
+# 6. Floorplan constraints (fits ZU4EV 8 clock regions)
 # =============================================================================
 create_pblock pb_pipeline
 add_cells_to_pblock [get_pblocks pb_pipeline] \
@@ -137,7 +140,7 @@ add_cells_to_pblock [get_pblocks pb_filter_disp] \
 resize_pblock [get_pblocks pb_filter_disp] \
     -add {CLOCKREGION_X1Y0:CLOCKREGION_X1Y2}
 
-# HDMI 输出寄存器靠近 Bank66 / clk_wiz BUFGCE，减轻源同步输出 Setup 压力
+# Place HDMI output registers near Bank66 / clk_wiz BUFGCE to ease source-synchronous setup
 create_pblock pb_hdmi_out
 add_cells_to_pblock [get_pblocks pb_hdmi_out] \
     [get_cells -filter {NAME =~ "hdmi_*_reg*"}]
@@ -164,9 +167,9 @@ set_property DONT_TOUCH true \
 
 
 # =============================================================================
-# 8. HDMI 输出 -- ADV7511 并行接口 (Bank 66, LVCMOS33)
+# 8. HDMI output -- ADV7511 parallel interface (Bank 66, LVCMOS33)
 #
-# 8a. 引脚分配
+# 8a. Pin assignment
 # =============================================================================
 set_property PACKAGE_PIN  F11   [get_ports hdmi_clk]
 set_property PACKAGE_PIN  L13   [get_ports hdmi_hsync]
@@ -205,46 +208,46 @@ set_property IOSTANDARD LVCMOS33 [get_ports hdmi_vsync]
 set_property IOSTANDARD LVCMOS33 [get_ports hdmi_de]
 set_property IOSTANDARD LVCMOS33 [get_ports {hdmi_d[*]}]
 
-# 降低驱动强度 + 快速翻转，减少 EMI，满足 ADV7511 建立/保持时序
+# Lower drive strength + fast slew to reduce EMI and meet ADV7511 setup/hold
 set_property DRIVE  8    [get_ports {hdmi_d[*] hdmi_hsync hdmi_vsync hdmi_de}]
 set_property SLEW   FAST [get_ports {hdmi_d[*] hdmi_hsync hdmi_vsync hdmi_de hdmi_clk}]
 
 
 # =============================================================================
-# 8b. HDMI 视频接口输出时序约束 (源同步 Source-Synchronous)
+# 8b. HDMI video output timing (source-synchronous)
 #
-# ADV7511 AC 规格 (Hardware User Guide Rev.D Table 1):
-#   tVSU  = 1.0 ns min  (视频数据相对 CLK 上升沿建立时间, @0.9V 测试)
-#   tVHLD = 0.7 ns min  (视频数据相对 CLK 上升沿保持时间, @0.9V 测试)
-#   注: ADV7511 可通过寄存器 0x15[7:5] 以 400ps 步进在 +-1.2ns 内调整建立/保持
+# ADV7511 AC specs (Hardware User Guide Rev.D Table 1):
+#   tVSU  = 1.0 ns min  (video data setup to CLK rising edge, @0.9V test)
+#   tVHLD = 0.7 ns min  (video data hold to CLK rising edge, @0.9V test)
+#   Note: ADV7511 register 0x15[7:5] can trim setup/hold in +-1.2ns steps of 400ps
 #
-# 源同步输出延迟公式:
+# Source-synchronous output delay:
 #   output_delay_max = board_skew_max + tVSU  = 0.3 ns + 1.0 ns = 1.3 ns
 #   output_delay_min = board_skew_min - tVHLD = 0.0 ns - 0.7 ns = -0.7 ns
-#   (board_skew: 板上 CLK/DATA 偏斜假设 <= 0.3 ns；ADV7511 0x15[7:5] 可微调)
+#   (board_skew: assume <=0.3 ns CLK/DATA skew on PCB; 0x15[7:5] can fine-tune)
 #
-# 参考时钟: clk_out1_zynq_imgproc_bd_clk_wiz_0_0 (pclk, 148.5 MHz, T=6.734 ns)
-#   有效 Tco 预算 = T - output_delay_max = 6.734 - 1.3 = 5.434 ns
+# Reference clock: clk_out1_zynq_imgproc_bd_clk_wiz_0_0 (pclk, 148.5 MHz, T=6.734 ns)
+#   Effective Tco budget = T - output_delay_max = 6.734 - 1.3 = 5.434 ns
 # =============================================================================
-# 注意: 不使用 IOB TRUE
-# Bank 66 LVCMOS33 的 HDIOLOGIC 输出 FF 最高支持 125 MHz (Min Period = 8 ns)
-# pclk = 148.5 MHz 超过此限制，强制 IOB 封装会导致 Pulse Width / Min Period 违例
-# 输出寄存器保留在 Fabric FDCE (支持 370 MHz+)，Setup 时序依然充足:
-#   FDCE Tco + 走线到 OBUF + OBUF 延迟 < 5.434 ns 预算
+# Note: do not use IOB TRUE
+# Bank 66 LVCMOS33 HDIOLOGIC output FFs max 125 MHz (Min Period = 8 ns)
+# pclk = 148.5 MHz exceeds this; forcing IOB packing causes pulse width / min period violations
+# Keep output registers in fabric FDCE (370 MHz+); setup margin remains adequate:
+#   FDCE Tco + route to OBUF + OBUF delay < 5.434 ns budget
 
-# hdmi_clk: assign hdmi_clk = pclk (直接转发像素时钟给 ADV7511 CLK 引脚)
-# 声明转发时钟，让 output_delay 以 clk_hdmi_fwd 为参考；
-# 数据 OBUF 与时钟 OBUF 同在 Bank66，延迟相近，两者在分析中互相抵消，
-# 消除以 MMCM 内部时钟为参考时产生的 ~2.7 ns 虚假 OBUF 延迟。
+# hdmi_clk: assign hdmi_clk = pclk (forward pixel clock to ADV7511 CLK pin)
+# Declare forwarded clock so output_delay uses clk_hdmi_fwd as reference;
+# data OBUF and clock OBUF are both in Bank66 with similar delay, largely cancelling in analysis
+# and removing ~2.7 ns false OBUF delay when referenced to internal MMCM clock.
 create_generated_clock \
     -name clk_hdmi_fwd \
     -source [get_pins u_bd/zynq_imgproc_bd_i/clk_wiz_0/inst/clkout1_buf/O] \
     -divide_by 1 \
     [get_ports hdmi_clk]
 
-# output_delay 参考转发时钟 clk_hdmi_fwd（而非 MMCM 内部时钟）
-# 分析路径：FDCE → 数据OBUF → 管脚，参考：hdmi_clk OBUF → 管脚
-# 两个 OBUF 延迟相互抵消，实际建立裕量约 = T - FDCE_Tco - route - 1.3 ≈ +4.8 ns
+# output_delay vs forwarded clk_hdmi_fwd (not internal MMCM clock)
+# Analyzed: FDCE -> data OBUF -> pad, ref: hdmi_clk OBUF -> pad
+# OBUF delays largely cancel; setup slack ~ T - FDCE_Tco - route - 1.3 ~ +4.8 ns
 set_output_delay \
     -clock clk_hdmi_fwd \
     -max 1.3 \
@@ -257,16 +260,16 @@ set_output_delay \
 
 
 # =============================================================================
-# 9. 调试输出端口 -- false_path
-#    dead_pixel_cnt_out / buf_sel_out 为设计内部状态观测口，无外部时序要求
+# 9. Debug output ports -- false_path
+#    dead_pixel_cnt_out / buf_sel_out are internal status taps with no external timing
 # =============================================================================
 #set_false_path -to [get_ports dead_pixel_cnt_out]
 #set_false_path -to [get_ports buf_sel_out]
 
 
 # =============================================================================
-# 10. I2C 双向端口 -- false_path
-#     IIC 最高 400 kHz，远低于任何内部时钟，无需高速时序分析
+# 10. I2C bidirectional ports -- false_path
+#     I2C max 400 kHz, far below any internal clock; no high-speed timing needed
 # =============================================================================
 set_false_path -to   [get_ports iic_scl_io]
 set_false_path -to   [get_ports iic_sda_io]

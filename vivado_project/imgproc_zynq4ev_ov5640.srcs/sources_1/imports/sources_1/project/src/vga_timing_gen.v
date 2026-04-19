@@ -43,7 +43,7 @@ module vga_timing_gen #(
     parameter H_ACTIVE_2K  = 2048,
     parameter H_FRONT_2K   = 88,
     parameter H_SYNC_2K    = 44,
-    parameter H_BACK_2K    = 148 - 44,    // back porch（不含 sync）
+    parameter H_BACK_2K    = 148 - 44,    // back porch (excluding sync)
     parameter V_TOTAL      = 1125,
     parameter V_ACTIVE     = 1080,
     parameter V_FRONT      = 4,
@@ -54,7 +54,7 @@ module vga_timing_gen #(
     parameter H_ACT_720P   = 1280,
     parameter V_ACT_720P   = 720
 )(
-    input  wire         pclk,      // 像素时钟（由外部 MMCM 提供）
+    input  wire         pclk,      // Pixel clock (from external MMCM)
     input  wire         rst_n,
 
     // [see README for description]
@@ -62,18 +62,18 @@ module vga_timing_gen #(
     input  wire [1:0]   res_sel,
 
     // [see README for description]
-    output reg          hsync,         // 行同步（负极性）
-    output reg          vsync,         // 场同步（负极性）
-    output reg          de,            // 数据使能（像素有效区高）
+    output reg          hsync,         // Horizontal sync (active low)
+    output reg          vsync,         // Vertical sync (active low)
+    output reg          de,            // Data enable (high in active pixel region)
 
     // [see README for description]
-    output reg  [11:0]  pixel_x,       // 0 ~ H_ACT-1（源分辨率）
-    output reg  [10:0]  pixel_y,       // 0 ~ V_ACT-1（源分辨率）
-    output reg          active_region, // 当前是否在图像有效区（非黑边）
+    output reg  [11:0]  pixel_x,       // 0 .. H_ACT-1 (source resolution)
+    output reg  [10:0]  pixel_y,       // 0 .. V_ACT-1 (source resolution)
+    output reg          active_region, // High in active image region (not letterbox)
 
     // [see README for description]
-    output reg          frame_start,   // 每帧第一个 pclk 脉冲
-    output reg          line_start,    // 每行第一个有效像素 pclk
+    output reg          frame_start,   // First pclk of each frame
+    output reg          line_start,    // First active-pixel pclk of each line
 
     // [see README for description]
     output reg          mmcm_rst
@@ -83,11 +83,11 @@ module vga_timing_gen #(
 // [see README for description]
 // ─────────────────────────────────────────────
 // [see README for description]
-reg [11:0] h_act;      // 当前活跃水平像素
-reg [10:0] v_act;      // 当前活跃垂直行数
-reg [11:0] h_pad_l;    // 左侧黑边宽度（居中）
-reg [10:0] v_pad_t;    // 顶部黑边高度（居中）
-reg [11:0] h_total;    // 当前水平总计数
+reg [11:0] h_act;      // Active horizontal pixels
+reg [10:0] v_act;      // Active vertical lines
+reg [11:0] h_pad_l;    // Left letterbox width (centered)
+reg [10:0] v_pad_t;    // Top letterbox height (centered)
+reg [11:0] h_total;    // Current horizontal total count
 
 always @(*) begin
     case (res_sel)
@@ -98,19 +98,19 @@ always @(*) begin
             v_pad_t  = 11'd0;
             h_total  = H_TOTAL_2K;
         end
-        2'b01: begin   // 1080p（居中在 2K 帧内）
+        2'b01: begin   // 1080p (centered in 2K frame)
             h_act    = H_ACT_1080P;
             v_act    = V_ACTIVE;
             h_pad_l  = (H_ACTIVE_2K - H_ACT_1080P) >> 1;  // 64
             v_pad_t  = 11'd0;
             h_total  = H_TOTAL_2K;
         end
-        2'b10: begin   // 720p（居中在 2K 帧内）
+        2'b10: begin   // 720p (centered in 2K frame)
             h_act    = H_ACT_720P;
             v_act    = V_ACT_720P;
             h_pad_l  = (H_ACTIVE_2K - H_ACT_720P) >> 1;   // 384
             v_pad_t  = (V_ACTIVE    - V_ACT_720P)  >> 1;   // 180
-            h_total  = H_TOTAL_2K;  // 统一用 2K H_TOTAL，720p 时空拍填零
+            h_total  = H_TOTAL_2K;  // Use 2K H_TOTAL; 720p pads with idle cycles
         end
         default: begin
             h_act = H_ACTIVE_2K; v_act = V_ACTIVE;

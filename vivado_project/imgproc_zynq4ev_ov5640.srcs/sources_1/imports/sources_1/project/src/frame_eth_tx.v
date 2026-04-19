@@ -1,14 +1,14 @@
-// frame_eth_tx.v  -- 帧抽取模块，从 ISP 像素流生成 AXI-Stream 帧数据
-// 目的：将完整 1920×1080 灰度帧（8-bit/pixel）打包后送 PS AXI DMA（S2MM）
+// frame_eth_tx.v  -- Frame tap: build AXI-Stream frame data from ISP pixel stream
+// Goal: pack a full 1920x1080 grayscale frame (8-bit/pixel) to PS AXI DMA (S2MM)
 //
-// 帧格式：帧头(8B) + 像素数据(1920×1080 B) = 2,073,608 B/帧
+// Frame format: header (8 B) + pixel payload (1920x1080 B) = 2,073,608 B/frame
 //
-// 帧头格式 (8 字节，大端):
-//   [7:0]  = 0xAA (魔数)
-//   [15:8] = 0x55 (魔数)
-//   [31:16] = 帧序号 (uint16)
-//   [47:32] = 图像宽度 (uint16)
-//   [63:48] = 图像高度 (uint16)
+// Header format (8 bytes, big-endian):
+//   [7:0]  = 0xAA (magic)
+//   [15:8] = 0x55 (magic)
+//   [31:16] = frame index (uint16)
+//   [47:32] = image width (uint16)
+//   [63:48] = image height (uint16)
 // =============================================================================
 
 `timescale 1ns/1ps
@@ -17,7 +17,7 @@ module frame_eth_tx #(
     parameter PIXEL_W  = 13,
     parameter IMG_W    = 1920,
     parameter IMG_H    = 1080,
-    parameter AXIS_DW  = 8        // 每拍 1 字节送 DMA
+    parameter AXIS_DW  = 8        // One byte per beat to DMA
 )(
     input  wire        clk,
     input  wire        rst_n,

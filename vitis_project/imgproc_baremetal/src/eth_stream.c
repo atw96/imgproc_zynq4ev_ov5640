@@ -1,8 +1,8 @@
 /*
- * eth_stream.c -- AXI DMA S2MM 收 PL 帧 + LwIP RAW UDP 分片发送
+ * eth_stream.c -- AXI DMA S2MM receives PL frames + LwIP RAW UDP fragmented send
  *
- * 依赖：BSP 中启用 lwIP（RAW_API），且 xparameters.h 含 GEM3(ENET3) 与 AXI DMA。
- * 更新 Vivado BD / 导出硬件后请在 Vitis 中 Re-generate BSP。
+ * Requires: lwIP (RAW_API) enabled in BSP, and xparameters.h with GEM3 (ENET3) and AXI DMA.
+ * After Vivado BD / hardware export changes, re-generate the BSP in Vitis.
  */
 
 #include "xparameters.h"

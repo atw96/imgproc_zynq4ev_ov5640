@@ -31,7 +31,7 @@
 
 module fifo_sync #(
     parameter DATA_W = 8,
-    parameter DEPTH  = 64,                  // 必须为 2 的幂次！
+    parameter DEPTH  = 64,                  // Must be a power of two!
     parameter ADDR_W = $clog2(DEPTH),
     parameter DO_REG = 0,
     parameter FWFT   = 0
@@ -43,25 +43,25 @@ module fifo_sync #(
     input  wire              wr_en,
     input  wire [DATA_W-1:0] wr_data,
     output wire              full,
-    output wire              almost_full,    // 剩余空间 ≤ 2
+    output wire              almost_full,    // Free space <= 2
 
     // [see README for description]
     input  wire              rd_en,
     output wire [DATA_W-1:0] rd_data,
     output wire              rd_data_vld,
     output wire              empty,
-    output wire              almost_empty,   // 剩余数据 ≤ 2
+    output wire              almost_empty,   // Occupancy <= 2
 
     // [see README for description]
-    output wire [ADDR_W:0]   data_count      // 当前条目数（0~DEPTH）
+    output wire [ADDR_W:0]   data_count      // Current entry count (0 .. DEPTH)
 );
 
 // ─────────────────────────────────────────────
 // [see README for description]
 // [see README for description]
 // ─────────────────────────────────────────────
-reg [ADDR_W:0] wr_ptr;   // 写指针（ADDR_W+1 位）
-reg [ADDR_W:0] rd_ptr;   // 读指针
+reg [ADDR_W:0] wr_ptr;   // Write pointer (ADDR_W+1 bits)
+reg [ADDR_W:0] rd_ptr;   // Read pointer
 
 wire [ADDR_W:0] count_w = wr_ptr - rd_ptr;
 
@@ -110,7 +110,7 @@ ram_sdp_bram #(
 ) u_bram (
     .clk_w     (clk),
     .we        (wr_ok),
-    .waddr     (wr_ptr[ADDR_W-1:0]),   // 低 ADDR_W 位为实际地址
+    .waddr     (wr_ptr[ADDR_W-1:0]),   // Low ADDR_W bits are physical address
     .wdata     (wr_data),
     .clk_r     (clk),
     .re        (rd_ok),

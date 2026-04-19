@@ -21,8 +21,8 @@ module ram_sp_bram #(
     parameter WR_MODE = 0       // 0:READ_FIRST 1:WRITE_FIRST 2:NO_CHANGE
 )(
     input  wire              clk,
-    input  wire              en,        // 端口使能
-    input  wire              we,        // 写使能（高有效）
+    input  wire              en,        // Port enable
+    input  wire              we,        // Write enable (active high)
     input  wire [ADDR_W-1:0] addr,
     input  wire [DATA_W-1:0] wdata,
     output reg  [DATA_W-1:0] rdata
@@ -38,7 +38,7 @@ generate
             if (en) begin
                 if (we)
                     mem[addr] <= wdata;
-                rdata <= mem[addr];     // 读旧值
+                rdata <= mem[addr];     // Read old value
             end
         end
     end else if (WR_MODE == 1) begin : gen_write_first
@@ -47,7 +47,7 @@ generate
             if (en) begin
                 if (we) begin
                     mem[addr] <= wdata;
-                    rdata     <= wdata; // 直接输出写入值
+                    rdata     <= wdata; // Forward written value
                 end else begin
                     rdata <= mem[addr];
                 end

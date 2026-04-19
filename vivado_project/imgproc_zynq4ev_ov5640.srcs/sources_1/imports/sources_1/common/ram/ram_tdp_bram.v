@@ -21,7 +21,7 @@ module ram_tdp_bram #(
     parameter DATA_W = 8,
     parameter DEPTH  = 1024,
     parameter ADDR_W = $clog2(DEPTH),
-    parameter DO_REG = 0        // 0:1T读  1:2T读
+    parameter DO_REG = 0        // 0: 1-cycle read  1: 2-cycle read
 )(
     // ── Port A ───────────────────────────────────────────────────
     input  wire              clk_a,
@@ -56,7 +56,7 @@ always @(posedge clk_a) begin
             mem[addr_a] <= wdata_a;
         rda_s1 <= mem[addr_a];
     end
-    vld_a_s1 <= en_a & ~we_a;  // 写操作期间 vld 不拉高
+    vld_a_s1 <= en_a & ~we_a;  // Do not assert vld during write
 end
 
 // [see README for description]

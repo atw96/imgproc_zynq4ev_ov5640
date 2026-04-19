@@ -41,10 +41,10 @@
 `timescale 1ns/1ps
 
 module axil_cfg_reg #(
-    parameter NUM_WR_REGS  = 16,     // 可写寄存器数量
-    parameter NUM_RD_REGS  = 8,      // 只读状态寄存器数量
-    parameter ADDR_BITS    = 12,     // 地址有效位宽（字节）
-    parameter STATUS_BASE  = 12'h200 // 状态寄存器基地址（字节）
+    parameter NUM_WR_REGS  = 16,     // Number of writable registers
+    parameter NUM_RD_REGS  = 8,      // Number of read-only status registers
+    parameter ADDR_BITS    = 12,     // Effective address width (bytes)
+    parameter STATUS_BASE  = 12'h200 // Status register base address (bytes)
 )(
     input  wire         aclk,
     input  wire         aresetn,
@@ -87,8 +87,8 @@ module axil_cfg_reg #(
 // ─────────────────────────────────────────────
 // [see README for description]
 // ─────────────────────────────────────────────
-reg [ADDR_BITS-1:0] aw_addr_lat;   // 锁存写地址
-reg                 aw_addr_vld;   // 写地址已接收
+reg [ADDR_BITS-1:0] aw_addr_lat;   // Latched write address
+reg                 aw_addr_vld;   // Write address received
 
 // ─────────────────────────────────────────────
 // [see README for description]
@@ -102,7 +102,7 @@ always @(posedge aclk) begin
         aw_addr_vld    <= 1'b0;
         wreg_wr_o      <= {NUM_WR_REGS{1'b0}};
     end else begin
-        wreg_wr_o <= {NUM_WR_REGS{1'b0}};  // 默认清零（单拍脉冲）
+        wreg_wr_o <= {NUM_WR_REGS{1'b0}};  // Default clear (single-cycle pulse)
 
         // [see README for description]
         if (s_axil_awvalid && s_axil_awready) begin
@@ -120,7 +120,7 @@ always @(posedge aclk) begin
             // [see README for description]
             begin : do_write
                 integer idx;
-                idx = aw_addr_lat[ADDR_BITS-1:2];  // 去掉低2位（字节对齐）
+                idx = aw_addr_lat[ADDR_BITS-1:2];  // Drop low 2 bits (byte-aligned)
                 if (idx < NUM_WR_REGS) begin
                     // [see README for description]
                     if (s_axil_wstrb[0]) wreg_o[idx*32+0  +: 8] <= s_axil_wdata[7:0];

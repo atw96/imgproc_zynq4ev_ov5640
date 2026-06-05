@@ -5,8 +5,7 @@ cd /d "%SCRIPT_DIR%"
 set "MODE=%~1"
 if "%MODE%"=="" set "MODE=jtag"
 
-if exist "D:\Xilinx\Vitis\2020.1\settings64.bat" call "D:\Xilinx\Vitis\2020.1\settings64.bat"
-if exist "D:\Xilinx\Vivado\2020.1\settings64.bat" call "D:\Xilinx\Vivado\2020.1\settings64.bat"
+call "%SCRIPT_DIR%..\tools\setup_xilinx_env.bat"
 
 where xsct >nul 2>&1
 if errorlevel 1 (echo ERROR: xsct not found & exit /b 1)

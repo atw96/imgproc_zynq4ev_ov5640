@@ -3,7 +3,7 @@
 <!--                                                         -->
 <!-- Copyright 1986-2020 Xilinx, Inc. All Rights Reserved.   -->
 
-<Project Version="7" Minor="49" Path="D:/Project/Vivado/zynq4ev/imgproc_mpsoc/vivado_proj/imgproc_axu4evb_ov5640.xpr">
+<Project Version="7" Minor="49" Path="$PPRDIR/imgproc_axu4evb_ov5640.xpr">
   <DefaultLaunch Dir="$PRUNDIR"/>
   <Configuration>
     <Option Name="Id" Val="bc5794dd9a554fa59885b266462ad3eb"/>

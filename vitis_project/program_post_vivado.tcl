@@ -1,4 +1,4 @@
-# Vivado HW Manager 已 Program Device (DONE=HIGH) 后，在 XSCT 执行（与 2026_5_28 手动步骤一致）
+# Vivado HW Manager 已 Program Device (DONE=HIGH) 后，在 XSCT 执行
 # 勿 rst-system；勿重复 fpga
 set script_dir [file dirname [file normalize [info script]]]
 set ok_flag [file join $script_dir .program_jtag.ok]

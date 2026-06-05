@@ -9,6 +9,7 @@ echo.
 
 set "VIVADO_ROOT="
 if defined XILINX_VIVADO if exist "%XILINX_VIVADO%\settings64.bat" set "VIVADO_ROOT=%XILINX_VIVADO%"
+if "%VIVADO_ROOT%"=="" if exist "C:\Xilinx\Vivado\2020.1\settings64.bat" set "VIVADO_ROOT=C:\Xilinx\Vivado\2020.1"
 if "%VIVADO_ROOT%"=="" if exist "D:\Xilinx\Vivado\2020.1\settings64.bat" set "VIVADO_ROOT=D:\Xilinx\Vivado\2020.1"
 if "%VIVADO_ROOT%"=="" (echo ERROR: Vivado not found & exit /b 1)
 call "%VIVADO_ROOT%\settings64.bat"

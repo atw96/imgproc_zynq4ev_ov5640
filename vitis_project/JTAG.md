@@ -29,14 +29,7 @@ deploy.bat program-elf
 
 内部使用 `program_post_vivado.tcl`：`stop A53` → `psu_init` → `dow` → `con`（与 2026_5_28 手动 XSCT 一致）。
 
-### B. 全自动（batch Vivado + XSCT）
-
-```bat
-cd vitis_project
-deploy.bat program-auto
-```
-
-### C. 仅 XSCT（无 Vivado GUI）
+### B. 仅 XSCT（无 Vivado GUI）
 
 关闭 Vivado 后：
 
@@ -44,7 +37,7 @@ deploy.bat program-auto
 deploy.bat program
 ```
 
-使用 `program_jtag.tcl`（无 `rst-system`，先 `psu_init` 再 `fpga`）。
+使用 `program_psu_first.tcl`（无 `rst-system`，先 `psu_init` 再 `fpga`）。
 
 ## 禁止
 

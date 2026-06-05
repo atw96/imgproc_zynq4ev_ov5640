@@ -6,25 +6,10 @@ setws $script_dir
 # platform_zynqmp.c (09_ps_net) 需要 BSP 含 ttcps -> xttcps.h
 set xttc_pre [file join $script_dir imgproc_baremetal Debug _sdk bsp psu_cortexa53_0 include xttcps.h]
 if {![file exists $xttc_pre]} {
-    puts "INFO: patch BSP ttcps (from doc/course_s2/09_ps_net)"
-    if {[catch {exec cmd /c [file join $script_dir patch_bsp_ttcps.bat]} pmsg]} {
-        return -code error "patch_bsp_ttcps 失败:\n$pmsg"
+    puts "INFO: regenerate BSP ttcps (regen_bsp_ttcps.tcl)"
+    if {[catch {source [file join $script_dir regen_bsp_ttcps.tcl]} e1]} {
+        return -code error "BSP regen 失败: $e1"
     }
-    puts $pmsg
-}
-
-# BSP 常滞后于 Vivado axi_dma_eth（c_sg_length_width 14 vs HW 26）
-if {[catch {exec python [file join $script_dir fix_axidma_sg_length.py]} axmsg]} {
-    puts "WARN: fix_axidma_sg_length.py: $axmsg"
-} else {
-    puts $axmsg
-}
-
-# BSP 常滞后于 Vivado axi_dma_eth（c_sg_length_width 14 vs HW 26）
-if {[catch {exec python [file join $script_dir fix_axidma_sg_length.py]} axmsg]} {
-    puts "WARN: fix_axidma_sg_length.py: $axmsg"
-} else {
-    puts $axmsg
 }
 
 # 确保 platform BSP 已生成（sysproj build 会刷新 BSP 库）

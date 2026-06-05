@@ -1,0 +1,54 @@
+# Vivado generated
+*.jou
+*.log
+*.str
+*.pb
+*.rpt
+*.rpx
+*.vdi
+*.wdb
+*.wcfg
+*.wdf
+*.vds
+.Xil/
+*.cache/
+*.sim/
+*.runs/
+*.hw/
+*.hbs/
+*.ip_user_files/
+*.hwdef
+
+# Vitis / Eclipse
+.metadata/
+RemoteSystemsTempFiles/
+**/Debug/
+**/Release/
+.sdk/
+*.launch.bak
+
+# Build binaries (regenerate via Vivado/Vitis)
+*.bit
+*.bin
+*.dcp
+*.xsa
+
+# JTAG / deploy markers
+.program_jtag.ok
+.program_bit.ok
+
+# OS / IDE
+Thumbs.db
+Desktop.ini
+.cursor/
+*.swp
+*~
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Local captures
+latest.png
+*.etl

@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<Runs Version="1" Minor="0">
+	<Run Id="bd_bf7d_vfb_0_0_synth_1" LaunchDir="D:/Project/Vivado/zynq4ev/imgproc_mpsoc/vivado_proj/imgproc_axu4evb_ov5640.runs/bd_bf7d_vfb_0_0_synth_1" FlowId="Vivado_Synthesis" FromStepId="vivado" ToStepId="vivado"/>
+	<Run Id="bd_bf7d_xbar_0_synth_1" LaunchDir="D:/Project/Vivado/zynq4ev/imgproc_mpsoc/vivado_proj/imgproc_axu4evb_ov5640.runs/bd_bf7d_xbar_0_synth_1" FlowId="Vivado_Synthesis" FromStepId="vivado" ToStepId="vivado"/>
+	<Run Id="bd_bf7d_r_sync_0_synth_1" LaunchDir="D:/Project/Vivado/zynq4ev/imgproc_mpsoc/vivado_proj/imgproc_axu4evb_ov5640.runs/bd_bf7d_r_sync_0_synth_1" FlowId="Vivado_Synthesis" FromStepId="vivado" ToStepId="vivado"/>
+	<Run Id="bd_bf7d_rx_0_synth_1" LaunchDir="D:/Project/Vivado/zynq4ev/imgproc_mpsoc/vivado_proj/imgproc_axu4evb_ov5640.runs/bd_bf7d_rx_0_synth_1" FlowId="Vivado_Synthesis" FromStepId="vivado" ToStepId="vivado"/>
+	<Run Id="bd_bf7d_phy_0_synth_1" LaunchDir="D:/Project/Vivado/zynq4ev/imgproc_mpsoc/vivado_proj/imgproc_axu4evb_ov5640.runs/bd_bf7d_phy_0_synth_1" FlowId="Vivado_Synthesis" FromStepId="vivado" ToStepId="vivado"/>
+	<Run Id="zynq_imgproc_bd_zynq_ultra_ps_e_0_0_synth_1" LaunchDir="D:/Project/Vivado/zynq4ev/imgproc_mpsoc/vivado_proj/imgproc_axu4evb_ov5640.runs/zynq_imgproc_bd_zynq_ultra_ps_e_0_0_synth_1" FlowId="Vivado_Synthesis" FromStepId="vivado" ToStepId="vivado"/>
+	<Run Id="zynq_imgproc_bd_rst_ps8_0_150m_0_synth_1" LaunchDir="D:/Project/Vivado/zynq4ev/imgproc_mpsoc/vivado_proj/imgproc_axu4evb_ov5640.runs/zynq_imgproc_bd_rst_ps8_0_150m_0_synth_1" FlowId="Vivado_Synthesis" FromStepId="vivado" ToStepId="vivado"/>
+	<Run Id="zynq_imgproc_bd_mipi_csi2_rx_subsystem_0_0_synth_1" LaunchDir="D:/Project/Vivado/zynq4ev/imgproc_mpsoc/vivado_proj/imgproc_axu4evb_ov5640.runs/zynq_imgproc_bd_mipi_csi2_rx_subsystem_0_0_synth_1" FlowId="Vivado_Synthesis" FromStepId="vivado" ToStepId="vivado">
+		<Parent Id="bd_bf7d_vfb_0_0_synth_1"/>
+		<Parent Id="bd_bf7d_xbar_0_synth_1"/>
+		<Parent Id="bd_bf7d_r_sync_0_synth_1"/>
+		<Parent Id="bd_bf7d_rx_0_synth_1"/>
+		<Parent Id="bd_bf7d_phy_0_synth_1"/>
+	</Run>
+	<Run Id="zynq_imgproc_bd_axi_iic_0_0_synth_1" LaunchDir="D:/Project/Vivado/zynq4ev/imgproc_mpsoc/vivado_proj/imgproc_axu4evb_ov5640.runs/zynq_imgproc_bd_axi_iic_0_0_synth_1" FlowId="Vivado_Synthesis" FromStepId="vivado" ToStepId="vivado"/>
+	<Run Id="zynq_imgproc_bd_axi_gpio_0_0_synth_1" LaunchDir="D:/Project/Vivado/zynq4ev/imgproc_mpsoc/vivado_proj/imgproc_axu4evb_ov5640.runs/zynq_imgproc_bd_axi_gpio_0_0_synth_1" FlowId="Vivado_Synthesis" FromStepId="vivado" ToStepId="vivado"/>
+	<Run Id="zynq_imgproc_bd_axi_sc_cfg_0_synth_1" LaunchDir="D:/Project/Vivado/zynq4ev/imgproc_mpsoc/vivado_proj/imgproc_axu4evb_ov5640.runs/zynq_imgproc_bd_axi_sc_cfg_0_synth_1" FlowId="Vivado_Synthesis" FromStepId="vivado" ToStepId="vivado"/>
+	<Run Id="zynq_imgproc_bd_axi_sc_hp0_0_synth_1" LaunchDir="D:/Project/Vivado/zynq4ev/imgproc_mpsoc/vivado_proj/imgproc_axu4evb_ov5640.runs/zynq_imgproc_bd_axi_sc_hp0_0_synth_1" FlowId="Vivado_Synthesis" FromStepId="vivado" ToStepId="vivado"/>
+	<Run Id="zynq_imgproc_bd_clk_wiz_0_0_synth_1" LaunchDir="D:/Project/Vivado/zynq4ev/imgproc_mpsoc/vivado_proj/imgproc_axu4evb_ov5640.runs/zynq_imgproc_bd_clk_wiz_0_0_synth_1" FlowId="Vivado_Synthesis" FromStepId="vivado" ToStepId="vivado"/>
+	<Run Id="zynq_imgproc_bd_rst_pclk_0_0_synth_1" LaunchDir="D:/Project/Vivado/zynq4ev/imgproc_mpsoc/vivado_proj/imgproc_axu4evb_ov5640.runs/zynq_imgproc_bd_rst_pclk_0_0_synth_1" FlowId="Vivado_Synthesis" FromStepId="vivado" ToStepId="vivado"/>
+	<Run Id="zynq_imgproc_bd_axi_sc_hp1_0_synth_1" LaunchDir="D:/Project/Vivado/zynq4ev/imgproc_mpsoc/vivado_proj/imgproc_axu4evb_ov5640.runs/zynq_imgproc_bd_axi_sc_hp1_0_synth_1" FlowId="Vivado_Synthesis" FromStepId="vivado" ToStepId="vivado"/>
+	<Run Id="synth_1" LaunchDir="D:/Project/Vivado/zynq4ev/imgproc_mpsoc/vivado_proj/imgproc_axu4evb_ov5640.runs/synth_1" FlowId="Vivado_Synthesis" FromStepId="vivado" ToStepId="vivado">
+		<Parent Id="zynq_imgproc_bd_zynq_ultra_ps_e_0_0_synth_1"/>
+		<Parent Id="zynq_imgproc_bd_rst_ps8_0_150m_0_synth_1"/>
+		<Parent Id="zynq_imgproc_bd_mipi_csi2_rx_subsystem_0_0_synth_1"/>
+		<Parent Id="zynq_imgproc_bd_axi_iic_0_0_synth_1"/>
+		<Parent Id="zynq_imgproc_bd_axi_gpio_0_0_synth_1"/>
+		<Parent Id="zynq_imgproc_bd_axi_sc_cfg_0_synth_1"/>
+		<Parent Id="zynq_imgproc_bd_axi_sc_hp0_0_synth_1"/>
+		<Parent Id="zynq_imgproc_bd_clk_wiz_0_0_synth_1"/>
+		<Parent Id="zynq_imgproc_bd_rst_pclk_0_0_synth_1"/>
+		<Parent Id="zynq_imgproc_bd_axi_sc_hp1_0_synth_1"/>
+	</Run>
+	<Parameters>
+		<Parameter Name="runs.monitorLSFJobs" Val="true" Type="bool"/>
+		<Parameter Name="runs.enableClusterConf" Val="true" Type="bool"/>
+	</Parameters>
+</Runs>
+

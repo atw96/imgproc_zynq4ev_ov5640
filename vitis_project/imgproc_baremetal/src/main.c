@@ -1,24 +1,39 @@
 #include "xil_printf.h"
 #include "sleep.h"
 #include "pl_iic_ov5640.h"
+#include "ov5640_sensor.h"
+#include "pl_isp.h"
 #include "eth_stream.h"
 
 int main(void)
 {
-	xil_printf("\r\n=== imgproc baremetal: AXI IIC + OV5640 ===\r\n");
+	int cam_ok = 0;
+
+	xil_printf("\r\n=== imgproc baremetal: OV5640 (ALINX 24_an5641) + ETH ===\r\n");
+	xil_printf("[MAIN] step: PlIic_Init...\r\n");
 	if (PlIic_Init() != XST_SUCCESS) {
 		xil_printf("PlIic_Init failed.\r\n");
 		return -1;
 	}
-	if (Ov5640_Probe() != XST_SUCCESS) {
-		xil_printf("OV5640 probe failed.\r\n");
+	xil_printf("[MAIN] step: Ov5640_PowerOn...\r\n");
+	if (Ov5640_PowerOn() != XST_SUCCESS) {
+		xil_printf("Ov5640_PowerOn failed.\r\n");
 		return -1;
 	}
-	if (Ov5640_InitMinimal() != XST_SUCCESS) {
-		xil_printf("Ov5640_InitMinimal failed.\r\n");
-		return -1;
+	xil_printf("[MAIN] step: Ov5640_Probe...\r\n");
+	if (Ov5640_Probe() == XST_SUCCESS) {
+		xil_printf("[MAIN] step: Ov5640_SensorInit (1080p table)...\r\n");
+		if (Ov5640_SensorInit() == XST_SUCCESS)
+			cam_ok = 1;
+		else
+			xil_printf("[MAIN] WARN: SensorInit failed, PL test_pat still runs\r\n");
+	} else {
+		xil_printf("[MAIN] WARN: OV5640 I2C/ID failed, PL test_pat still runs\r\n");
 	}
-	xil_printf("OK: minimal init done.\r\n");
+	(void)PlIsp_Init();
+	PlIsp_DumpStatus();
+	xil_printf("[MAIN] camera_ok=%d, PL test_pat hardwired in bitstream\r\n", cam_ok);
+	usleep(500000);
 	(void)eth_stream_main();
 	return 0;
 }

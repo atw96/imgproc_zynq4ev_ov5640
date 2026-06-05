@@ -4,6 +4,8 @@
 
 **imgproc_axu4evb_ov5640** is a real-time imaging pipeline for the **ALINX AXU4EVB** carrier with **ACU4EV** module (XCZU4EV) and **ALINX AV5641** camera (OV5640, **2-lane MIPI CSI-2**). This repository snapshot contains a **Vivado 2020.1** project and a **Vitis 2020.1** workspace (platform + bare-metal app).
 
+> **Repository cleanup note:** generated Vivado/Vitis cache files and redundant build artifacts have been removed, and the demo is now focused on the Ethernet + RTL version.
+
 ## Features
 
 - **MIPI CSI-2 capture**: RAW10 from OV5640 via MIPI CSI-2 RX Subsystem.

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="ASCII"?>
-<systemproject:SystemProject xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:sdsproject="http://www.xilinx.com/sdsproject" xmlns:systemproject="http://www.xilinx.com/systemproject" name="imgproc_baremetal_system" platform="../zynq_imgproc_platform/export/zynq_imgproc_platform/zynq_imgproc_platform.xpfm" platformUID="xilinx:::0.0(custom)" sysConfig="zynq_imgproc_platform" runtime="C/C++">
+<systemproject:SystemProject xmi:version="2.0" xmlns:xmi="http://www.omg.org/XMI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:sdsproject="http://www.xilinx.com/sdsproject" xmlns:systemproject="http://www.xilinx.com/systemproject" name="imgproc_baremetal_system" platform="D:/Project/Vivado/zynq4ev/imgproc_mpsoc/vitis_project/zynq_imgproc_platform/export/zynq_imgproc_platform/zynq_imgproc_platform.xpfm" platformUID="xilinx:::0.0(custom)" sysConfig="zynq_imgproc_platform" runtime="C/C++">
   <configuration name="Debug">
     <configBuildOptions xsi:type="systemproject:SystemOptions">
       <applications name="imgproc_baremetal" domainName="standalone_psu_cortexa53_0" domainPrettyName="standalone_psu_cortexa53_0" appBuildConfig="Debug"/>

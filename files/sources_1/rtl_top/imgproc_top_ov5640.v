@@ -42,7 +42,10 @@ module imgproc_top_ov5640 #(
     parameter AXI_AW   = 32,
     parameter LINE_LEN = 1920, // OV5640 1080p
     parameter IMG_W    = 1920,
-    parameter IMG_H    = 1080
+    parameter IMG_H    = 1080,
+    /* Compile-time ISP/ETH mux (Vivado generic override for MIPI bit) */
+    parameter ISP_USE_TEST_RAW = 1'b1,
+    parameter ETH_USE_CLAHE    = 1'b1
 )(
     // -------------------------------------------------------------------------
     // 物理引脚（PACKAGE_PIN / IOSTANDARD 见 XDC）
@@ -175,11 +178,14 @@ module imgproc_top_ov5640 #(
     wire                 eth_axis_tvalid;
     wire                 eth_axis_tready;   
     wire                 eth_axis_tlast;
+    wire                 eth_axis_tkeep = 1'b1;
     wire [15:0]          eth_tx_frame_cnt;
     wire [31:0]          mipi_beat_cnt_w;
     wire [31:0]          mipi_pix_cnt_w;
     reg  [31:0]          raw_pixel_cnt_r;
     reg  [31:0]          clahe_pixel_cnt_r;
+    reg  [31:0]          fifo_ovf_cnt_r;
+    reg  [20:0]          bilat_frame_pix_r;
 
     // A6. I2C 三态（BD 内 IOBUF，本顶层再包一层）
     wire iic_scl_i_w, iic_scl_o_w, iic_scl_t_w;
@@ -237,6 +243,7 @@ module imgproc_top_ov5640 #(
         .ETH_AXIS_S2MM_tvalid (eth_axis_tvalid),
         .ETH_AXIS_S2MM_tready (eth_axis_tready),
         .ETH_AXIS_S2MM_tlast  (eth_axis_tlast),
+        .ETH_AXIS_S2MM_tkeep  (eth_axis_tkeep),
 
         // AXI-Lite 配置 Master
         .M_AXIL_CFG_awaddr  (s_axil_awaddr),
@@ -321,7 +328,8 @@ module imgproc_top_ov5640 #(
     // D. AXI4-Lite 配置寄存器 (axil_cfg_reg)
     // =========================================================================
     localparam NUM_WR_REGS = 10;
-    localparam NUM_RD_REGS = 6;
+    localparam NUM_RD_REGS = 7;
+    localparam integer ETH_FRAME_PIX = IMG_W * IMG_H;
 
     wire [NUM_WR_REGS*32-1:0] cfg_wreg;
     wire [NUM_WR_REGS-1:0]    cfg_wreg_wr;
@@ -371,8 +379,12 @@ module imgproc_top_ov5640 #(
 
     wire        cfg_start     = r_ctrl[0];
     wire [1:0]  res_sel       = r_ctrl[2:1];
-    /* Phase1 交付: 默认开测试图，不依赖 PS 写 M_AXIL_CFG (避免 0xA0000008 访问挂死) */
-    wire        test_pat_en    = 1'b1;
+    /* r_ctrl[8]=legacy ETH test_pat bypass; [9]=ISP test RAW; [10]=ETH from CLAHE */
+    wire        test_pat_en    = r_ctrl[8];
+    wire        isp_src_test   = ((r_ctrl & 32'h00000600) == 32'h0) ?
+                                  ISP_USE_TEST_RAW : r_ctrl[9];
+    wire        eth_from_clahe = ((r_ctrl & 32'h00000600) == 32'h0) ?
+                                  ETH_USE_CLAHE : r_ctrl[10];
     wire        gamma_lut_we  = cfg_wreg_wr[7];
     wire [7:0]  gamma_lut_wa  = r_gamma_wr[20:13];
     wire [12:0] gamma_lut_wd  = r_gamma_wr[12:0];
@@ -389,6 +401,18 @@ module imgproc_top_ov5640 #(
     wire               si_raw_valid;
     wire               si_raw_hsync;
     wire               si_raw_vsync;
+
+    wire [PIXEL_W-1:0] mipi_raw_data;
+    wire               mipi_raw_valid;
+    wire               mipi_raw_hsync;
+    wire               mipi_raw_vsync;
+
+    wire [PIXEL_W-1:0] pat_raw_data;
+    wire               pat_raw_valid;
+    wire               pat_raw_hsync;
+    wire               pat_raw_vsync;
+    wire               pat_raw_ready;
+    wire               clahe_fifo_almost_full;
 
     sensor_if #(
         .RAW_W     (RAW_W),
@@ -414,10 +438,10 @@ module imgproc_top_ov5640 #(
         .mipi_tlast  (mipi_tlast_w),
         .mipi_tuser  (mipi_tuser_w),
         // 像素流输出 (Q0.13, pl_clk 域)
-        .m_raw_data  (si_raw_data),
-        .m_raw_valid (si_raw_valid),
-        .m_raw_hsync (si_raw_hsync),
-        .m_raw_vsync (si_raw_vsync),
+        .m_raw_data  (mipi_raw_data),
+        .m_raw_valid (mipi_raw_valid),
+        .m_raw_hsync (mipi_raw_hsync),
+        .m_raw_vsync (mipi_raw_vsync),
         .bayer_phase  (),
         .frame_width  (),
         .frame_height (),
@@ -427,13 +451,39 @@ module imgproc_top_ov5640 #(
         .mipi_pix_cnt  (mipi_pix_cnt_w)
     );
 
+    assign pat_raw_ready = ~clahe_fifo_almost_full;
+
+    isp_raw_pat_gen #(
+        .RAW_W   (RAW_W),
+        .PIXEL_W (PIXEL_W),
+        .IMG_W   (IMG_W),
+        .IMG_H   (IMG_H)
+    ) u_isp_pat (
+        .clk          (pl_clk),
+        .rst_n        (rst_n),
+        .enable       (isp_src_test),
+        .s_ready      (pat_raw_ready),
+        .m_raw_data   (pat_raw_data),
+        .m_raw_valid  (pat_raw_valid),
+        .m_raw_hsync  (pat_raw_hsync),
+        .m_raw_vsync  (pat_raw_vsync)
+    );
+
+    assign si_raw_data  = isp_src_test ? pat_raw_data  : mipi_raw_data;
+    assign si_raw_valid = isp_src_test ? pat_raw_valid : mipi_raw_valid;
+    assign si_raw_hsync = isp_src_test ? pat_raw_hsync : mipi_raw_hsync;
+    assign si_raw_vsync = isp_src_test ? pat_raw_vsync : mipi_raw_vsync;
+
     // =========================================================================
     // F. ISP 预处理（流水线）
     // =========================================================================
     wire [PIXEL_W-1:0] preproc_Y;
     wire [15:0]         preproc_CbCr;
     wire               preproc_valid, preproc_hsync, preproc_vsync;
+    wire               preproc_sof;
     wire [31:0]         dead_cnt_w_int;
+
+    assign preproc_sof = preproc_valid & preproc_vsync;
 
     img_preprocessor #(
         .PIXEL_W  (PIXEL_W),
@@ -469,6 +519,7 @@ module imgproc_top_ov5640 #(
     wire [PIXEL_W*NUM_LINES-1:0] col_pixels;
     wire                          col_valid;
     wire [10:0]                   col_x, col_y;
+    wire                          col_sof;
 
     line_buffer_ctrl #(
         .PIXEL_W   (PIXEL_W),
@@ -480,12 +531,14 @@ module imgproc_top_ov5640 #(
         .rst_n          (rst_n),
         .s_pixel_tdata  (preproc_Y),
         .s_pixel_tvalid (preproc_valid),
-        .s_pixel_tlast  (1'b0),
+        .s_pixel_tlast  (preproc_hsync),
+        .s_pixel_sof    (preproc_sof),
         .s_pixel_tready (),
         .col_pixels     (col_pixels),
         .col_valid      (col_valid),
         .col_x          (col_x),
         .col_y          (col_y),
+        .col_sof        (col_sof),
         .buf_full       (),
         .fill_lines     (),
         .wr_ptr_x       ()
@@ -498,6 +551,7 @@ module imgproc_top_ov5640 #(
     // =========================================================================
     wire [PIXEL_W-1:0] enh_Y;
     wire               enh_valid;
+    wire               enh_sof;
     wire [10:0]        enh_x, enh_y;
 
     local_detail_enhance_11x11 #(
@@ -511,6 +565,7 @@ module imgproc_top_ov5640 #(
         .col_valid   (col_valid),
         .col_x       (col_x),
         .col_y       (col_y),
+        .col_sof     (col_sof),
         .centre_pix  (centre_pix),
         .lut_wr_data (sy_lut_wd),
         .lut_wr_addr (sy_lut_wa),
@@ -518,7 +573,8 @@ module imgproc_top_ov5640 #(
         .m_enh_data  (enh_Y),
         .m_enh_valid (enh_valid),
         .m_enh_x     (enh_x),
-        .m_enh_y     (enh_y)
+        .m_enh_y     (enh_y),
+        .m_enh_sof   (enh_sof)
     );
 
     // =========================================================================
@@ -526,6 +582,7 @@ module imgproc_top_ov5640 #(
     // =========================================================================
     wire [PIXEL_W-1:0] bilat_Y;
     wire               bilat_valid;
+    wire               bilat_sof;
 
     bilateral_filter #(
         .PIXEL_W    (PIXEL_W),
@@ -545,10 +602,71 @@ module imgproc_top_ov5640 #(
     );
 
     // =========================================================================
-    // J. CLAHE
+    // J. CLAHE (with ingress FIFO + backpressure)
     // =========================================================================
+    localparam CLAHE_FIFO_DEPTH = 2048;
+    localparam CLAHE_FIFO_AW    = $clog2(CLAHE_FIFO_DEPTH);
+
     wire [PIXEL_W-1:0] clahe_Y;
     wire               clahe_valid;
+    wire               clahe_sof;
+    wire               clahe_s_pix_ready;
+    wire [PIXEL_W:0]   clahe_fifo_wdata;
+    wire [PIXEL_W:0]   clahe_fifo_rdata;
+    wire               clahe_fifo_wr;
+    wire               clahe_fifo_rd;
+    wire               clahe_fifo_full;
+    wire               clahe_fifo_empty;
+    wire [PIXEL_W-1:0] clahe_s_pix_data;
+    wire               clahe_s_pix_valid;
+
+    assign bilat_sof = bilat_valid && (bilat_frame_pix_r == 21'd0);
+
+    always @(posedge pl_clk or negedge rst_n) begin
+        if (!rst_n)
+            bilat_frame_pix_r <= 21'd0;
+        else if (bilat_valid) begin
+            if (bilat_frame_pix_r == ETH_FRAME_PIX[20:0] - 1)
+                bilat_frame_pix_r <= 21'd0;
+            else
+                bilat_frame_pix_r <= bilat_frame_pix_r + 21'd1;
+        end
+    end
+
+    assign clahe_fifo_wdata = {bilat_sof, bilat_Y};
+    assign clahe_fifo_wr   = bilat_valid && !clahe_fifo_full;
+
+    always @(posedge pl_clk or negedge rst_n) begin
+        if (!rst_n)
+            fifo_ovf_cnt_r <= 32'd0;
+        else if (bilat_valid && clahe_fifo_full)
+            fifo_ovf_cnt_r <= fifo_ovf_cnt_r + 32'd1;
+    end
+
+    fifo_sync #(
+        .DATA_W (PIXEL_W + 1),
+        .DEPTH  (CLAHE_FIFO_DEPTH),
+        .ADDR_W (CLAHE_FIFO_AW),
+        .DO_REG (1),
+        .FWFT   (0)
+    ) u_clahe_fifo (
+        .clk          (pl_clk),
+        .rst_n        (rst_n),
+        .wr_en        (clahe_fifo_wr),
+        .wr_data      (clahe_fifo_wdata),
+        .full         (clahe_fifo_full),
+        .almost_full  (clahe_fifo_almost_full),
+        .rd_en        (clahe_fifo_rd),
+        .rd_data      (clahe_fifo_rdata),
+        .rd_data_vld  (),
+        .empty        (clahe_fifo_empty),
+        .almost_empty (),
+        .data_count   ()
+    );
+
+    assign clahe_fifo_rd    = clahe_s_pix_ready && !clahe_fifo_empty;
+    assign clahe_s_pix_valid = clahe_fifo_rd;
+    assign clahe_s_pix_data  = clahe_fifo_rdata[PIXEL_W-1:0];
 
     clahe_engine #(
         .PIXEL_W    (PIXEL_W),
@@ -559,12 +677,14 @@ module imgproc_top_ov5640 #(
         .HIST_BITS  (8),
         .CLIP_LIMIT (40)
     ) u_clahe (
-        .clk         (pl_clk),
-        .rst_n       (rst_n),
-        .s_pix_data  (bilat_Y),
-        .s_pix_valid (bilat_valid),
-        .m_pix_data  (clahe_Y),
-        .m_pix_valid (clahe_valid)
+        .clk          (pl_clk),
+        .rst_n        (rst_n),
+        .s_pix_data   (clahe_s_pix_data),
+        .s_pix_valid  (clahe_s_pix_valid),
+        .s_pix_ready  (clahe_s_pix_ready),
+        .m_pix_data   (clahe_Y),
+        .m_pix_valid  (clahe_valid),
+        .m_pix_sof    (clahe_sof)
     );
 
     // K. DDR 乒乓 + AXI4 HP1
@@ -621,25 +741,8 @@ module imgproc_top_ov5640 #(
     );
 
     // =========================================================================
-    // K2. 以太网帧发送（新增）：从 ISP 像素流抽取，打包送 PS AXI DMA
+    // K2. 以太网帧发送：CLAHE 输出 -> AXI DMA
     // =========================================================================
-    wire [PIXEL_W-1:0] tpat_pix;
-    wire               tpat_valid;
-    wire [31:0]        tpat_pix_cnt;
-
-    test_pat_gen #(
-        .PIXEL_W (PIXEL_W),
-        .IMG_W   (IMG_W),
-        .IMG_H   (IMG_H)
-    ) u_tpat (
-        .clk         (pl_clk),
-        .rst_n       (rst_n),
-        .enable      (test_pat_en),
-        .m_pix_data  (tpat_pix),
-        .m_pix_valid (tpat_valid),
-        .pix_cnt     (tpat_pix_cnt)
-    );
-
 
     always @(posedge pl_clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -653,8 +756,13 @@ module imgproc_top_ov5640 #(
         end
     end
 
-    wire [PIXEL_W-1:0] eth_pix_data  = test_pat_en ? tpat_pix  : clahe_Y;
-    wire               eth_pix_valid = test_pat_en ? tpat_valid : clahe_valid;
+    wire [PIXEL_W-1:0] eth_src_data  = eth_from_clahe ? clahe_Y : bilat_Y;
+    wire               eth_src_valid = eth_from_clahe ? clahe_valid : bilat_valid;
+    wire               eth_src_sof   = eth_from_clahe ? clahe_sof : bilat_sof;
+
+    wire [PIXEL_W-1:0] eth_pix_data  = eth_src_data;
+    wire               eth_pix_valid = eth_src_valid;
+    wire               eth_pix_sof   = eth_src_sof;
 
     (* mark_debug = "true" *) wire dbg_eth_valid = eth_pix_valid;
     (* mark_debug = "true" *) wire dbg_axis_tvalid = eth_axis_tvalid;
@@ -671,6 +779,7 @@ module imgproc_top_ov5640 #(
         .rst_n          (rst_n),
         .s_pix_data     (eth_pix_data),
         .s_pix_valid    (eth_pix_valid),
+        .s_pix_sof      (eth_pix_sof),
         // AXI-Stream → BD 内 AXI DMA
         .m_axis_tdata   (eth_axis_tdata),
         .m_axis_tvalid  (eth_axis_tvalid),
@@ -736,6 +845,7 @@ module imgproc_top_ov5640 #(
     // M. 状态回读寄存器
     // =========================================================================
     assign cfg_status = {
+        fifo_ovf_cnt_r,
         clahe_pixel_cnt_r,
         raw_pixel_cnt_w,
         mipi_pix_cnt_w,
@@ -783,57 +893,5 @@ module imgproc_top_ov5640 #(
     //assign buf_sel_out         = buf_sel_w;
     //assign dead_pixel_cnt_out  = dead_cnt_w_int;
     assign dead_cnt_w = dead_cnt_w_int;
-
-endmodule
-
-`timescale 1ns/1ps
-
-module test_pat_gen #(
-    parameter PIXEL_W = 13,
-    parameter IMG_W   = 1920,
-    parameter IMG_H   = 1080
-)(
-    input  wire               clk,
-    input  wire               rst_n,
-    input  wire               enable,
-    output reg  [PIXEL_W-1:0] m_pix_data,
-    output reg                m_pix_valid,
-    output reg  [31:0]        pix_cnt
-);
-
-    localparam integer TOTAL_PIX = IMG_W * IMG_H;
-    localparam [15:0]  FRAME_GAP = 16'd32;
-
-    reg [20:0] pix_idx;
-    reg [15:0] gap_cnt;
-
-    wire [10:0] col = pix_idx % IMG_W;
-    wire [7:0]  grad = col[10:3];
-
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            pix_idx     <= 21'd0;
-            gap_cnt     <= 16'd0;
-            m_pix_valid <= 1'b0;
-            m_pix_data  <= {PIXEL_W{1'b0}};
-            pix_cnt     <= 32'd0;
-        end else if (!enable) begin
-            pix_idx     <= 21'd0;
-            gap_cnt     <= 16'd0;
-            m_pix_valid <= 1'b0;
-        end else if (gap_cnt != 16'd0) begin
-            m_pix_valid <= 1'b0;
-            gap_cnt     <= gap_cnt - 16'd1;
-        end else if (pix_idx < TOTAL_PIX[20:0]) begin
-            m_pix_valid <= 1'b1;
-            m_pix_data  <= {grad, 5'b0};
-            pix_idx     <= pix_idx + 21'd1;
-            pix_cnt     <= pix_cnt + 32'd1;
-        end else begin
-            m_pix_valid <= 1'b0;
-            pix_idx     <= 21'd0;
-            gap_cnt     <= FRAME_GAP;
-        end
-    end
 
 endmodule

@@ -24,6 +24,7 @@ module frame_eth_tx #(
 
     input  wire [PIXEL_W-1:0] s_pix_data,
     input  wire               s_pix_valid,
+    input  wire               s_pix_sof,
 
     output reg  [AXIS_DW-1:0] m_axis_tdata,
     output reg                m_axis_tvalid,
@@ -63,12 +64,7 @@ module frame_eth_tx #(
 
     wire [7:0] pix_byte = s_pix_data[PIXEL_W-1 -: 8];
 
-    reg s_pix_valid_r;
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) s_pix_valid_r <= 1'b0;
-        else        s_pix_valid_r <= s_pix_valid;
-    end
-    wire frame_start = s_pix_valid & ~s_pix_valid_r;
+    wire frame_start = s_pix_valid && s_pix_sof;
 
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin

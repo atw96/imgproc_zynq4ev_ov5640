@@ -6,6 +6,7 @@
 
 int PlIsp_Init(void);
 int PlIsp_EnableTestPattern(int enable);
+int PlIsp_UseMipiSource(int enable_mipi);
 void PlIsp_DumpStatus(void);
 u32 PlIsp_ReadDeadPixelCnt(void);
 

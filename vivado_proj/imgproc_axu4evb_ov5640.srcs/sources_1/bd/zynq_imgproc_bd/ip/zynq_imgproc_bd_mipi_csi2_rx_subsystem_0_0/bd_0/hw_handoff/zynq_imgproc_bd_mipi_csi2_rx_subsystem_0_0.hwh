@@ -1,5 +1,5 @@
 ﻿<?xml version="1.0" encoding="UTF-8" standalone="no" ?>
-<EDKSYSTEM EDWVERSION="1.2" TIMESTAMP="Tue Jun  2 12:50:06 2026" VIVADOVERSION="2020.1">
+<EDKSYSTEM EDWVERSION="1.2" TIMESTAMP="Mon Jul  6 18:14:27 2026" VIVADOVERSION="2020.1">
 
   <SYSTEMINFO ARCH="zynquplus" DEVICE="xczu4ev" NAME="bd_bf7d" PACKAGE="sfvc784" SPEEDGRADE="-2"/>
 
@@ -63,36 +63,6 @@
         <CONNECTION INSTANCE="rx" PORT="m_axis_aresetn"/>
         <CONNECTION INSTANCE="vfb_0" PORT="s_axis_aresetn"/>
         <CONNECTION INSTANCE="vfb_0" PORT="vfb_arstn"/>
-      </CONNECTIONS>
-    </PORT>
-    <PORT DIR="O" LEFT="23" NAME="video_out_tdata" RIGHT="0" SIGIS="undef" SIGNAME="vfb_0_vfb_data">
-      <CONNECTIONS>
-        <CONNECTION INSTANCE="vfb_0" PORT="vfb_data"/>
-      </CONNECTIONS>
-    </PORT>
-    <PORT DIR="O" LEFT="9" NAME="video_out_tdest" RIGHT="0" SIGIS="undef" SIGNAME="vfb_0_vfb_vcdt">
-      <CONNECTIONS>
-        <CONNECTION INSTANCE="vfb_0" PORT="vfb_vcdt"/>
-      </CONNECTIONS>
-    </PORT>
-    <PORT DIR="O" NAME="video_out_tlast" SIGIS="undef" SIGNAME="vfb_0_vfb_eol">
-      <CONNECTIONS>
-        <CONNECTION INSTANCE="vfb_0" PORT="vfb_eol"/>
-      </CONNECTIONS>
-    </PORT>
-    <PORT DIR="I" NAME="video_out_tready" SIGIS="undef" SIGNAME="vfb_0_vfb_ready">
-      <CONNECTIONS>
-        <CONNECTION INSTANCE="vfb_0" PORT="vfb_ready"/>
-      </CONNECTIONS>
-    </PORT>
-    <PORT DIR="O" LEFT="0" NAME="video_out_tuser" RIGHT="0" SIGIS="undef" SIGNAME="vfb_0_vfb_sof">
-      <CONNECTIONS>
-        <CONNECTION INSTANCE="vfb_0" PORT="vfb_sof"/>
-      </CONNECTIONS>
-    </PORT>
-    <PORT DIR="O" NAME="video_out_tvalid" SIGIS="undef" SIGNAME="vfb_0_vfb_valid">
-      <CONNECTIONS>
-        <CONNECTION INSTANCE="vfb_0" PORT="vfb_valid"/>
       </CONNECTIONS>
     </PORT>
     <PORT DIR="I" LEFT="12" NAME="csirxss_s_axi_awaddr" RIGHT="0" SIGIS="undef" SIGNAME="xbar_s_axi_awaddr">
@@ -188,6 +158,36 @@
     <PORT DIR="I" LEFT="0" NAME="csirxss_s_axi_rready" RIGHT="0" SIGIS="undef" SIGNAME="xbar_s_axi_rready">
       <CONNECTIONS>
         <CONNECTION INSTANCE="xbar" PORT="s_axi_rready"/>
+      </CONNECTIONS>
+    </PORT>
+    <PORT DIR="O" LEFT="23" NAME="video_out_tdata" RIGHT="0" SIGIS="undef" SIGNAME="vfb_0_vfb_data">
+      <CONNECTIONS>
+        <CONNECTION INSTANCE="vfb_0" PORT="vfb_data"/>
+      </CONNECTIONS>
+    </PORT>
+    <PORT DIR="O" LEFT="9" NAME="video_out_tdest" RIGHT="0" SIGIS="undef" SIGNAME="vfb_0_vfb_vcdt">
+      <CONNECTIONS>
+        <CONNECTION INSTANCE="vfb_0" PORT="vfb_vcdt"/>
+      </CONNECTIONS>
+    </PORT>
+    <PORT DIR="O" NAME="video_out_tlast" SIGIS="undef" SIGNAME="vfb_0_vfb_eol">
+      <CONNECTIONS>
+        <CONNECTION INSTANCE="vfb_0" PORT="vfb_eol"/>
+      </CONNECTIONS>
+    </PORT>
+    <PORT DIR="I" NAME="video_out_tready" SIGIS="undef" SIGNAME="vfb_0_vfb_ready">
+      <CONNECTIONS>
+        <CONNECTION INSTANCE="vfb_0" PORT="vfb_ready"/>
+      </CONNECTIONS>
+    </PORT>
+    <PORT DIR="O" LEFT="0" NAME="video_out_tuser" RIGHT="0" SIGIS="undef" SIGNAME="vfb_0_vfb_sof">
+      <CONNECTIONS>
+        <CONNECTION INSTANCE="vfb_0" PORT="vfb_sof"/>
+      </CONNECTIONS>
+    </PORT>
+    <PORT DIR="O" NAME="video_out_tvalid" SIGIS="undef" SIGNAME="vfb_0_vfb_valid">
+      <CONNECTIONS>
+        <CONNECTION INSTANCE="vfb_0" PORT="vfb_valid"/>
       </CONNECTIONS>
     </PORT>
     <PORT DIR="I" NAME="mipi_phy_if_clk_n" SIGIS="undef" SIGNAME="phy_clk_rxn">

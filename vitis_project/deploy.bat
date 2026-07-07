@@ -4,12 +4,10 @@ set "SCRIPT_DIR=%~dp0"
 cd /d "%SCRIPT_DIR%"
 set "MODE=%~1"
 if "%MODE%"=="" set "MODE=jtag"
-
-call "%SCRIPT_DIR%..\tools\setup_xilinx_env.bat"
-
+call "%SCRIPT_DIR%_setup_xilinx_env.bat"
+if errorlevel 1 exit /b 1
 where xsct >nul 2>&1
 if errorlevel 1 (echo ERROR: xsct not found & exit /b 1)
-
 if /I "%MODE%"=="help" goto usage
 if /I "%MODE%"=="/?" goto usage
 if /I "%MODE%"=="-h" goto usage
@@ -17,74 +15,113 @@ if /I "%MODE%"=="sync" goto do_sync
 if /I "%MODE%"=="build" goto do_build
 if /I "%MODE%"=="program" goto do_program
 if /I "%MODE%"=="program-elf" goto do_program_elf
+if /I "%MODE%"=="program-auto" goto do_program_auto
+if /I "%MODE%"=="program-xsct" goto do_program
+if /I "%MODE%"=="boot" goto do_boot_disabled
 if /I "%MODE%"=="jtag" goto do_jtag
 if /I "%MODE%"=="all" goto do_all
+if /I "%MODE%"=="check" goto do_check
 echo ERROR: unknown mode "%MODE%"
 goto usage
-
 :do_sync
 echo [sync] Vivado bit to Vitis platform
 call xsct "%SCRIPT_DIR%sync_hw_from_vivado.tcl"
 if errorlevel 1 exit /b 1
+echo [sync] verify psu_init from Vivado (do NOT factory-patch)
+py -3 "%SCRIPT_DIR%fix_psu_init.py" --fix
+py -3 "%SCRIPT_DIR%fix_axidma_sg_length.py"
+call "%SCRIPT_DIR%check_psu_init.bat"
+if errorlevel 1 exit /b 1
 goto ok
-
 :do_build
 echo [build] imgproc_baremetal
 call xsct "%SCRIPT_DIR%build_system.tcl"
 if errorlevel 1 exit /b 1
-goto ok
-
-:do_program_elf
-echo [jtag] post-Vivado: psu_init + dow (close HW Manager first)
-del "%SCRIPT_DIR%.program_jtag.ok" 2>nul
-call xsct "%SCRIPT_DIR%program_post_vivado.tcl"
-if not exist "%SCRIPT_DIR%.program_jtag.ok" (
-  echo ===== RESULT: FAIL =====
-  echo Hint: run vivado_proj\regen_psu_init_and_sync.bat then retry
+echo [build] re-copy Vivado impl bit (sysproj may restore stale bit from xsa)
+copy /Y "..\vivado_proj\imgproc_axu4evb_ov5640.runs\impl_1\imgproc_top_ov5640.bit" "%SCRIPT_DIR%zynq_imgproc_platform\hw\imgproc_top_ov5640.bit" >nul
+if errorlevel 1 (
+  echo ERROR: Vivado impl bit missing ? run fix_dma_length_and_build.tcl first
   exit /b 1
 )
-del "%SCRIPT_DIR%.program_jtag.ok" 2>nul
-echo ===== RESULT: PASS (post-vivado) =====
+copy /Y "%SCRIPT_DIR%zynq_imgproc_platform\hw\imgproc_top_ov5640.bit" "%SCRIPT_DIR%imgproc_baremetal\_ide\bitstream\imgproc_top_ov5640.bit" >nul
 goto ok
-
+:do_check
+call "%SCRIPT_DIR%check_jtag.bat"
+if errorlevel 1 exit /b 1
+goto ok
+:do_boot_disabled
+echo ERROR: SD/boot disabled. Use: deploy.bat jtag
+exit /b 1
+:do_program_elf
+echo [jtag] Vivado DONE=HIGH ?? psu_init + dow (?? hw_server)
+echo [jtag] ???? Vivado HW Manager ??????
+goto do_jtag_elf
+:do_program_auto
+call "%SCRIPT_DIR%program_auto.bat"
+if errorlevel 1 exit /b 1
+goto ok
 :do_program
 echo [jtag] program only (skip build)
 goto do_jtag_program
-
 :do_jtag
 echo [build] imgproc_baremetal
 call xsct "%SCRIPT_DIR%build_system.tcl"
 if errorlevel 1 exit /b 1
 :do_jtag_program
-echo [jtag] XSCT: psu_init + fpga + dow
+echo [jtag] XSCT: psu_init + fpga + dow (??rst-system)
+echo [jtag] Close Vivado Hardware Manager first.
+call "%SCRIPT_DIR%_kill_jtag_all.bat"
+echo [jtag] preflight + fix psu_init (mandatory)
+py -3 "%SCRIPT_DIR%preflight_debug.py" --fix
+if errorlevel 1 (
+  echo ERROR: preflight FAIL before JTAG program
+  exit /b 1
+)
+call "%SCRIPT_DIR%_start_hw_server.bat"
+if errorlevel 1 exit /b 1
+if not defined HW_PORT set "HW_PORT=10245"
+set "XSCT_HW_URL=TCP:127.0.0.1:%HW_PORT%"
 del "%SCRIPT_DIR%.program_jtag.ok" 2>nul
-call xsct "%SCRIPT_DIR%program_psu_first.tcl"
+call xsct "%SCRIPT_DIR%program_jtag.tcl"
+taskkill /F /IM hw_server.exe /T >nul 2>&1
 if not exist "%SCRIPT_DIR%.program_jtag.ok" (
+  echo.
   echo ===== RESULT: FAIL =====
   echo If Vivado already programmed bit, try: deploy.bat program-elf
   exit /b 1
 )
 del "%SCRIPT_DIR%.program_jtag.ok" 2>nul
+echo.
 echo ===== RESULT: PASS =====
 goto ok
-
+:do_jtag_elf
+REM ??_kill_hw_server???? Vivado Program????????Channel closed
+del "%SCRIPT_DIR%.program_jtag.ok" 2>nul
+call xsct "%SCRIPT_DIR%program_post_vivado.tcl"
+if not exist "%SCRIPT_DIR%.program_jtag.ok" (
+  echo ===== RESULT: FAIL =====
+  echo ??psu_init ??: vivado_proj\regen_psu_init_and_sync.bat ????
+  exit /b 1
+)
+del "%SCRIPT_DIR%.program_jtag.ok" 2>nul
+echo ===== RESULT: PASS (post-vivado) =====
+goto ok
 :do_all
-call "%~f0" sync
+call "%SCRIPT_DIR%deploy.bat" sync
 if errorlevel 1 exit /b 1
-call "%~f0" jtag
+call "%SCRIPT_DIR%deploy.bat" jtag
 if errorlevel 1 exit /b 1
 goto ok
-
 :usage
 echo.
-echo deploy.bat - JTAG workflow (no SD boot)
+echo deploy.bat ??JTAG only, no SD
 echo   jtag         build + program (default)
 echo   program      program only
-echo   program-elf  after Vivado Program Device: psu_init + dow
-echo   build / sync / all
+echo   program-auto Vivado bit + XSCT post-vivado
+echo   program-elf  Vivado DONE=HIGH ??psu_init+dow
+echo   build / sync / check / all
 echo.
 exit /b 0
-
 :ok
 echo OK [%MODE%]
 exit /b 0

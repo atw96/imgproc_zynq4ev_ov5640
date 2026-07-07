@@ -27,9 +27,16 @@ cd vitis_project
 deploy.bat program-elf
 ```
 
-内部使用 `program_post_vivado.tcl`：`stop A53` → `psu_init` → `dow` → `con`。
+内部使用 `program_post_vivado.tcl`：`stop A53` → `psu_init` → `dow` → `con`（与 2026_5_28 手动 XSCT 一致）。
 
-### B. 仅 XSCT（无 Vivado GUI）
+### B. 全自动（batch Vivado + XSCT）
+
+```bat
+cd vitis_project
+deploy.bat program-auto
+```
+
+### C. 仅 XSCT（无 Vivado GUI）
 
 关闭 Vivado 后：
 
@@ -37,7 +44,7 @@ deploy.bat program-elf
 deploy.bat program
 ```
 
-使用 `program_psu_first.tcl`（无 `rst-system`，先 `psu_init` 再 `fpga`）。
+使用 `program_jtag.tcl`（无 `rst-system`，先 `psu_init` 再 `fpga`）。
 
 ## 禁止
 
@@ -47,9 +54,9 @@ deploy.bat program
 
 ## 串口
 
-PS UART0，115200 8N1（Windows 设备管理器中查看实际 COM 口），期望：
+`<COMx>`，115200，期望：
 
 ```
 === imgproc baremetal: AXI IIC + OV5640 ===
-[ETH] board 192.168.1.10 -> 192.168.1.100:5002
+[ETH] board <board_ip> -> <pc_ip>:<port>
 ```

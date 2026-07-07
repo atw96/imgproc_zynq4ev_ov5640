@@ -40,9 +40,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File tools/run_full_flow.ps1 -Elf
 
 ## 网络
 
-- 板端目标 IP：`192.168.1.100`（`eth_stream.c` 中 `ETH_DST_IP_STR`，按 PC 实际地址修改）
-- 板端目标端口：**5002**
-- 板子 IP 一般为 `192.168.1.10`，可用 `ping 192.168.1.10` 确认
+- 板端目标 IP：`<pc_ip>`（`eth_stream.c` 中 `ETH_DST_IP_STR`）
+- 板端目标端口：**`<port>`**
+- 板子 IP 一般为 `<board_ip>`，可用 `ping <board_ip>` 确认
 
 ## 常见问题
 

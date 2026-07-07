@@ -1586,34 +1586,28 @@
       }
     },
     "interface_nets": {
-      "axi_sc_hp0_M00_AXI": {
-        "interface_ports": [
-          "axi_sc_hp0/M00_AXI",
-          "zynq_ultra_ps_e_0/S_AXI_HP0_FPD"
-        ]
-      },
       "axi_sc_cfg_M00_AXI": {
         "interface_ports": [
           "M_AXIL_CFG",
           "axi_sc_cfg/M00_AXI"
         ]
       },
+      "axi_sc_cfg_M04_AXI": {
+        "interface_ports": [
+          "axi_sc_cfg/M04_AXI",
+          "axi_dma_eth/S_AXI_LITE"
+        ]
+      },
+      "S_AXI_HP1_1": {
+        "interface_ports": [
+          "S_AXI_HP1",
+          "axi_sc_hp1/S00_AXI"
+        ]
+      },
       "axi_dma_eth_M_AXI_S2MM": {
         "interface_ports": [
           "axi_dma_eth/M_AXI_S2MM",
           "axi_sc_hp2/S00_AXI"
-        ]
-      },
-      "S_AXI_HP0_1": {
-        "interface_ports": [
-          "S_AXI_HP0",
-          "axi_sc_hp0/S00_AXI"
-        ]
-      },
-      "mipi_phy_if_1": {
-        "interface_ports": [
-          "mipi_phy_if",
-          "mipi_csi2_rx_subsystem_0/mipi_phy_if"
         ]
       },
       "axi_sc_hp1_M00_AXI": {
@@ -1628,40 +1622,16 @@
           "mipi_csi2_rx_subsystem_0/video_out"
         ]
       },
+      "S_AXI_HP0_1": {
+        "interface_ports": [
+          "S_AXI_HP0",
+          "axi_sc_hp0/S00_AXI"
+        ]
+      },
       "axi_sc_cfg_M01_AXI": {
         "interface_ports": [
           "axi_sc_cfg/M01_AXI",
           "axi_iic_0/S_AXI"
-        ]
-      },
-      "axi_sc_cfg_M03_AXI": {
-        "interface_ports": [
-          "axi_sc_cfg/M03_AXI",
-          "mipi_csi2_rx_subsystem_0/csirxss_s_axi"
-        ]
-      },
-      "S_AXI_HP1_1": {
-        "interface_ports": [
-          "S_AXI_HP1",
-          "axi_sc_hp1/S00_AXI"
-        ]
-      },
-      "axi_sc_cfg_M04_AXI": {
-        "interface_ports": [
-          "axi_sc_cfg/M04_AXI",
-          "axi_dma_eth/S_AXI_LITE"
-        ]
-      },
-      "zynq_ultra_ps_e_0_M_AXI_HPM0_FPD": {
-        "interface_ports": [
-          "zynq_ultra_ps_e_0/M_AXI_HPM0_FPD",
-          "axi_sc_cfg/S00_AXI"
-        ]
-      },
-      "axi_sc_hp2_M00_AXI": {
-        "interface_ports": [
-          "axi_sc_hp2/M00_AXI",
-          "zynq_ultra_ps_e_0/S_AXI_HP2_FPD"
         ]
       },
       "ETH_AXIS_S2MM_1": {
@@ -1670,10 +1640,40 @@
           "axi_dma_eth/S_AXIS_S2MM"
         ]
       },
+      "axi_sc_hp0_M00_AXI": {
+        "interface_ports": [
+          "axi_sc_hp0/M00_AXI",
+          "zynq_ultra_ps_e_0/S_AXI_HP0_FPD"
+        ]
+      },
+      "axi_sc_hp2_M00_AXI": {
+        "interface_ports": [
+          "axi_sc_hp2/M00_AXI",
+          "zynq_ultra_ps_e_0/S_AXI_HP2_FPD"
+        ]
+      },
+      "zynq_ultra_ps_e_0_M_AXI_HPM0_FPD": {
+        "interface_ports": [
+          "zynq_ultra_ps_e_0/M_AXI_HPM0_FPD",
+          "axi_sc_cfg/S00_AXI"
+        ]
+      },
+      "axi_sc_cfg_M03_AXI": {
+        "interface_ports": [
+          "axi_sc_cfg/M03_AXI",
+          "mipi_csi2_rx_subsystem_0/csirxss_s_axi"
+        ]
+      },
       "axi_sc_cfg_M02_AXI": {
         "interface_ports": [
           "axi_sc_cfg/M02_AXI",
           "axi_gpio_0/S_AXI"
+        ]
+      },
+      "mipi_phy_if_1": {
+        "interface_ports": [
+          "mipi_phy_if",
+          "mipi_csi2_rx_subsystem_0/mipi_phy_if"
         ]
       }
     },

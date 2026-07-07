@@ -54,9 +54,11 @@ module clahe_engine #(
 
     input  wire [PIXEL_W-1:0]    s_pix_data,
     input  wire                  s_pix_valid,
+    output wire                  s_pix_ready,
 
     output reg  [PIXEL_W-1:0]    m_pix_data,
-    output reg                   m_pix_valid
+    output reg                   m_pix_valid,
+    output reg                   m_pix_sof
 );
 
     localparam HIST_BINS   = 1 << HIST_BITS;
@@ -66,8 +68,32 @@ module clahe_engine #(
     localparam TILES_Y = (IMG_H + TILE_H - 1) / TILE_H;
 
     // =========================================================================
-    // FSM state encoding
+    // Tile pixel store — MAP replays pixels histogrammed in COLLECT
     // =========================================================================
+    reg  [9:0]          tile_wa;
+    reg  [PIXEL_W-1:0]  tile_wdata;
+    reg                 tile_we;
+    reg  [9:0]          tile_ra;
+    wire [PIXEL_W-1:0]  tile_rdata;
+
+    ram_sp_bram #(
+        .DATA_W (PIXEL_W),
+        .DEPTH  (TILE_PIXELS),
+        .ADDR_W (10),
+        .WR_MODE(0)
+    ) u_tile_mem (
+        .clk   (clk),
+        .en    (1'b1),
+        .we    (tile_we),
+        .addr  (tile_we ? tile_wa : tile_ra),
+        .wdata (tile_wdata),
+        .rdata (tile_rdata)
+    );
+
+    reg [5:0]  cur_tile_x;
+    reg [5:0]  cur_tile_y;
+    reg [9:0]  map_idx;
+    reg        map_armed;
     localparam ST_COLLECT = 2'd0;
     localparam ST_CLIP    = 2'd1;
     localparam ST_CDF     = 2'd2;
@@ -178,7 +204,7 @@ module clahe_engine #(
         if (!rst_n) begin
             px_col <= 11'd0;
             px_row <= 11'd0;
-        end else if (s_pix_valid && state == ST_COLLECT) begin
+        end else if (s_pix_valid && s_pix_ready && state == ST_COLLECT) begin
             if (px_col == IMG_W[10:0] - 1) begin
                 px_col <= 11'd0;
                 px_row <= (px_row == IMG_H[10:0] - 1) ? 11'd0 : px_row + 1;
@@ -188,8 +214,10 @@ module clahe_engine #(
         end
     end
 
-    wire tile_end = s_pix_valid && (state == ST_COLLECT) &&
+    wire tile_end = s_pix_valid && s_pix_ready && (state == ST_COLLECT) &&
                    (tile_pix_cnt == TILE_PIXELS[9:0] - 1);
+
+    assign s_pix_ready = (state == ST_COLLECT);
 
     // clr_active/clr_bin: background histogram zero-fill after CDF→MAP transition.
     // Declared here and driven ONLY inside the main FSM always block below to
@@ -212,7 +240,13 @@ module clahe_engine #(
             cdf_min_found <= 1'b0;
             tile_total    <= 16'd0;
             m_pix_valid   <= 1'b0;
+            m_pix_sof     <= 1'b0;
             m_pix_data    <= {PIXEL_W{1'b0}};
+            tile_we     <= 1'b0;
+            map_armed     <= 1'b0;
+            map_idx       <= 10'd0;
+            cur_tile_x    <= 6'd0;
+            cur_tile_y    <= 6'd0;
             fwd_valid     <= 1'b0;
             rd_vld_d      <= 1'b0;
             clr_active    <= 1'b0;
@@ -227,13 +261,16 @@ module clahe_engine #(
             hist_we  <= 1'b0;
             cdf_we   <= 1'b0;
 
+            m_pix_valid <= 1'b0;
+            m_pix_sof   <= 1'b0;
+
             case (state)
 
                 // -------------------------------------------------------------
                 // ST_COLLECT
                 // -------------------------------------------------------------
                 ST_COLLECT: begin
-                    m_pix_valid <= 1'b0;
+                    map_armed <= 1'b0;
 
                     // Drive hist BRAM read address = current pixel bin
                     hist_addr <= pix_bin;
@@ -241,7 +278,7 @@ module clahe_engine #(
 
                     // Forwarding pipeline
                     rd_bin_d <= pix_bin;
-                    rd_vld_d <= s_pix_valid;
+                    rd_vld_d <= s_pix_valid && s_pix_ready;
 
                     // Write back incremented count one cycle after read
                     if (rd_vld_d) begin
@@ -255,8 +292,13 @@ module clahe_engine #(
                         fwd_valid <= 1'b0;
                     end
 
-                    if (s_pix_valid) begin
+                    if (s_pix_valid && s_pix_ready) begin
+                        tile_wa    <= tile_pix_cnt;
+                        tile_wdata <= s_pix_data;
+                        tile_we    <= 1'b1;
                         if (tile_end) begin
+                            cur_tile_x   <= px_col[10:5];
+                            cur_tile_y   <= px_row[10:5];
                             tile_pix_cnt <= 10'd0;
                             tile_total   <= {6'd0, tile_pix_cnt} + 16'd1;
                             proc_bin     <= {HIST_BITS{1'b0}};
@@ -364,30 +406,37 @@ module clahe_engine #(
                     fwd_valid <= 1'b0;
                     cdf_we    <= 1'b0;
 
-                    // ── Background histogram clear (256 cycles, single driver) ──
                     if (clr_active) begin
                         hist_we    <= 1'b1;
                         hist_addr  <= clr_bin;
                         hist_wdata <= 16'd0;
                         clr_bin    <= clr_bin + 1;
+                        map_armed  <= 1'b0;
                         if (clr_bin == 8'hFF)
                             clr_active <= 1'b0;
                     end else begin
                         hist_we <= 1'b0;
-                    end
 
-                    // ── Pixel mapping ──
-                    if (s_pix_valid) begin
-                        cdf_rd_addr  <= pix_bin;
-                        m_pix_data   <= cdf_rd_data;
-                        m_pix_valid  <= 1'b1;
-                        tile_pix_cnt <= tile_pix_cnt + 1;
-                        if (tile_pix_cnt == TILE_PIXELS[9:0] - 1) begin
-                            tile_pix_cnt <= 10'd0;
-                            state        <= ST_COLLECT;
+                        if (!map_armed) begin
+                            map_armed   <= 1'b1;
+                            map_idx     <= 10'd0;
+                            tile_ra     <= 10'd0;
+                            cdf_rd_addr <= tile_rdata[PIXEL_W-1 : PIXEL_W-HIST_BITS];
+                        end else begin
+                            m_pix_data  <= cdf_rd_data;
+                            m_pix_valid <= 1'b1;
+                            m_pix_sof   <= (map_idx == 10'd0) &&
+                                           (cur_tile_x == 6'd0) &&
+                                           (cur_tile_y == 6'd0);
+                            if (map_idx == TILE_PIXELS[9:0] - 1) begin
+                                map_armed <= 1'b0;
+                                state     <= ST_COLLECT;
+                            end else begin
+                                map_idx <= map_idx + 10'd1;
+                                tile_ra <= map_idx + 10'd1;
+                                cdf_rd_addr <= tile_rdata[PIXEL_W-1 : PIXEL_W-HIST_BITS];
+                            end
                         end
-                    end else begin
-                        m_pix_valid <= 1'b0;
                     end
                 end
 

@@ -51,14 +51,16 @@ module line_buffer_ctrl #(
     // Input pixel stream (from img_preprocessor Y channel)
     input  wire [PIXEL_W-1:0]            s_pixel_tdata,
     input  wire                          s_pixel_tvalid,
-    input  wire                          s_pixel_tlast,   // pulse on first pix of line
+    input  wire                          s_pixel_tlast,
+    input  wire                          s_pixel_sof,
     output wire                          s_pixel_tready,
 
     // 11-row window output
-    output reg  [PIXEL_W*11-1:0]         col_pixels,   // 11 rows packed, row0=oldest/top
+    output reg  [PIXEL_W*11-1:0]         col_pixels,
     output reg                           col_valid,
-    output reg  [ADDR_W-1:0]             col_x,        // column index (0..LINE_LEN-1)
-    output reg  [10:0]                   col_y,        // centre-row index in image (0..IMG_H-1)
+    output reg  [ADDR_W-1:0]             col_x,
+    output reg  [10:0]                   col_y,
+    output reg                           col_sof,
 
     // Status
     output reg                           buf_full,
@@ -258,9 +260,12 @@ module line_buffer_ctrl #(
 
     // Latch rd_y two cycles (to align col_y output with col_pixels)
     reg [10:0] rd_y_r, rd_y_lat;
+    reg        sof_r, sof_lat;
     always @(posedge clk) begin
         rd_y_r   <= rd_y;
         rd_y_lat <= rd_y_r;
+        sof_r    <= s_pixel_sof;
+        sof_lat  <= sof_r;
     end
 
     // =========================================================================
@@ -321,7 +326,8 @@ module line_buffer_ctrl #(
     always @(posedge clk) begin
         col_valid <= re_lat;
         col_x     <= ra_lat;
-        col_y     <= rd_y_lat;   // centre row (0-based, padded rows included)
+        col_y     <= rd_y_lat;
+        col_sof   <= sof_lat && re_lat;
 
         // Window row 0 = top (oldest physical slot), row 10 = bottom (newest)
         // Use eff_off_lat instead of raw index to apply edge clamping.

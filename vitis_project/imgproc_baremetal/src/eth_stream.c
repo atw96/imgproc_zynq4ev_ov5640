@@ -25,8 +25,8 @@
 #include "pl_isp.h"
 #include <string.h>
 
-/* 板端 UDP 目标：PC 地址（与 README 默认一致，按实际网络修改） */
-#define ETH_DST_IP_STR   "192.168.1.100"
+/* Realtek 直连：单播 PC；启动时发 ARP 探测 */
+#define ETH_DST_IP_STR   "10.0.0.100"
 #define ETH_PROBE_PORT   5003U
 #define ETH_DST_PORT     5002U
 #define ETH_SRC_PORT     5001U
@@ -82,10 +82,10 @@ static void eth_arp_probe_pc(void)
 
 	if (!echo_netif)
 		return;
-	IP4_ADDR(&pc_ip, 192, 168, 1, 100);
+	IP4_ADDR(&pc_ip, 10, 0, 0, 100);
 	etharp_gratuitous(echo_netif);
 	etharp_request(echo_netif, &pc_ip);
-	xil_printf("[ETH] ARP: gratuitous + who-has %s\r\n", ETH_DST_IP_STR);
+	xil_printf("[ETH] ARP: gratuitous + who-has 10.0.0.100\r\n");
 	eth_poll_burst(2000U);
 }
 
@@ -288,9 +288,10 @@ static int net_init(void)
 	init_platform();
 	lwip_init();
 
-	IP4_ADDR(&ipaddr, 192, 168, 1, 10);
+	/* 10.0.0.0/24 直连，与 WiFi 192.168.x 无关 */
+	IP4_ADDR(&ipaddr, 10, 0, 0, 10);
 	IP4_ADDR(&netmask, 255, 255, 255, 0);
-	IP4_ADDR(&gw, 192, 168, 1, 1);
+	IP4_ADDR(&gw, 10, 0, 0, 1);
 
 	if (!xemac_add(&Netif, &ipaddr, &netmask, &gw, mac,
 		       PLATFORM_EMAC_BASEADDR)) {

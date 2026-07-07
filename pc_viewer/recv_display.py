@@ -115,7 +115,7 @@ def main():
         else:
             # 等待第一帧
             blank = np.zeros((540, 960, 3), dtype=np.uint8)
-            cv2.putText(blank, f"Waiting UDP {BIND_IP}:{LISTEN_PORT} from 192.168.1.10...",
+            cv2.putText(blank, f"Waiting UDP {BIND_IP or '0.0.0.0'}:{LISTEN_PORT} from 10.0.0.10...",
                         (60, 270), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 255), 2)
             cv2.imshow("ZynqMP 1920x1080 Gradient", blank)
 

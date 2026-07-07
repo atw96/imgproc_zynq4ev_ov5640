@@ -1,7 +1,7 @@
 //arch=zynqmp
 all: {
-[bootloader,destination_cpu=a53-0] ../zynq_imgproc_platform/export/zynq_imgproc_platform/sw/zynq_imgproc_platform/boot/fsbl.elf
-[pmufw_image] ../zynq_imgproc_platform/export/zynq_imgproc_platform/sw/zynq_imgproc_platform/boot/pmufw.elf
-[destination_device=pl] ../zynq_imgproc_platform/hw/imgproc_top_ov5640.bit
-[destination_cpu=a53-0,exception_level=el-3,trustzone] ../imgproc_baremetal/Debug/imgproc_baremetal.elf
+[bootloader,destination_cpu=a53-0] D:/Project/Vivado/zynq4ev/imgproc_mpsoc/vitis_project/zynq_imgproc_platform/export/zynq_imgproc_platform/sw/zynq_imgproc_platform/boot/fsbl.elf
+[pmufw_image] D:/Project/Vivado/zynq4ev/imgproc_mpsoc/vitis_project/zynq_imgproc_platform/export/zynq_imgproc_platform/sw/zynq_imgproc_platform/boot/pmufw.elf
+[destination_device=pl] D:/Project/Vivado/zynq4ev/imgproc_mpsoc/vitis_project/zynq_imgproc_platform/hw/imgproc_top_ov5640.bit
+[destination_cpu=a53-0,exception_level=el-3,trustzone] D:/Project/Vivado/zynq4ev/imgproc_mpsoc/vitis_project/imgproc_baremetal/Debug/imgproc_baremetal.elf
 }

@@ -82,6 +82,7 @@ module local_detail_enhance_11x11 #(
     input  wire                          col_valid,
     input  wire [10:0]                   col_x,
     input  wire [10:0]                   col_y,
+    input  wire                          col_sof,
 
     // Centre pixel (row 5 of the 11-row window)
     input  wire [PIXEL_W-1:0]            centre_pix,
@@ -95,7 +96,8 @@ module local_detail_enhance_11x11 #(
     output reg  [PIXEL_W-1:0]            m_enh_data,
     output reg                           m_enh_valid,
     output reg  [10:0]                   m_enh_x,
-    output reg  [10:0]                   m_enh_y
+    output reg  [10:0]                   m_enh_y,
+    output reg                           m_enh_sof
 );
 
     // =========================================================================
@@ -123,10 +125,12 @@ module local_detail_enhance_11x11 #(
     // =========================================================================
     wire [10:0] dly_x, dly_y;
     wire        dly_valid;
+    wire        dly_sof;
 
     shift_reg #(.W(11),         .DEPTH(PIPE_DEPTH)) u_dly_x     (.clk(clk), .din(col_x),     .dout(dly_x));
     shift_reg #(.W(11),         .DEPTH(PIPE_DEPTH)) u_dly_y     (.clk(clk), .din(col_y),     .dout(dly_y));
     shift_reg #(.W(1),          .DEPTH(PIPE_DEPTH)) u_dly_valid (.clk(clk), .din(col_valid), .dout(dly_valid));
+    shift_reg #(.W(1),          .DEPTH(PIPE_DEPTH)) u_dly_sof   (.clk(clk), .din(col_sof),   .dout(dly_sof));
     // Also delay centre_pix by PIPE_DEPTH to align with the output stage
     // Note: individual cen_at_pipeN shift registers are instantiated at each stage below.
     // (dly_centre removed — per-stage depths are more precise)
@@ -419,10 +423,12 @@ module local_detail_enhance_11x11 #(
     always @(posedge clk) begin
         if (!rst_n) begin
             m_enh_valid <= 1'b0;
+            m_enh_sof   <= 1'b0;
         end else begin
             m_enh_valid <= ep_valid;
             m_enh_x     <= dly_x;
             m_enh_y     <= dly_y;
+            m_enh_sof   <= dly_sof && ep_valid;
             m_enh_data  <= eyt_clamp;
         end
     end

@@ -1,7 +1,7 @@
 {
    "ActiveEmotionalView":"Default View",
-   "Default View_ScaleFactor":"0.383333",
-   "Default View_TopLeft":"-470,5",
+   "Default View_ScaleFactor":"1.33256",
+   "Default View_TopLeft":"567,112",
    "ExpandedHierarchyInLayout":"",
    "guistr":"# # String gsaved with Nlview 7.0r6  2020-01-29 bk=1.5227 VDI=41 GEI=36 GUI=JA:9.0 non-TLS
 #  -string -flagsOSRD
@@ -60,21 +60,21 @@ preplace netloc axi_iic_0_scl_t 1 4 2 NJ 310 NJ
 preplace netloc iic_sda_i_1 1 0 5 10J 330 NJ 330 690J 140 NJ 140 1750
 preplace netloc axi_iic_0_sda_o 1 4 2 NJ 350 NJ
 preplace netloc axi_iic_0_sda_t 1 4 2 NJ 370 NJ
+preplace netloc axi_sc_hp0_M00_AXI 1 2 1 N 240
+preplace netloc axi_sc_cfg_M00_AXI 1 3 3 NJ 550 NJ 550 NJ
+preplace netloc axi_dma_eth_M_AXI_S2MM 1 1 1 N 560
+preplace netloc S_AXI_HP0_1 1 0 2 NJ 220 NJ
+preplace netloc mipi_phy_if_1 1 0 4 NJ 760 NJ 760 NJ 760 NJ
 preplace netloc axi_sc_hp1_M00_AXI 1 2 1 700 80n
 preplace netloc mipi_csi2_rx_subsystem_0_video_out 1 4 2 NJ 770 NJ
-preplace netloc mipi_phy_if_1 1 0 4 NJ 760 NJ 760 NJ 760 NJ
-preplace netloc zynq_ultra_ps_e_0_M_AXI_HPM0_FPD 1 2 2 730 180 1330
 preplace netloc axi_sc_cfg_M01_AXI 1 3 1 1380 310n
-preplace netloc axi_sc_cfg_M02_AXI 1 3 1 1390 590n
 preplace netloc axi_sc_cfg_M03_AXI 1 3 1 1350 610n
-preplace netloc axi_sc_cfg_M04_AXI 1 0 4 20 160 NJ 160 NJ 160 1340
-preplace netloc axi_sc_cfg_M00_AXI 1 3 3 NJ 550 NJ 550 NJ
-preplace netloc ETH_AXIS_S2MM_1 1 0 1 NJ 560
-preplace netloc axi_sc_hp0_M00_AXI 1 2 1 N 240
-preplace netloc S_AXI_HP0_1 1 0 2 NJ 220 NJ
 preplace netloc S_AXI_HP1_1 1 0 2 NJ 60 NJ
+preplace netloc axi_sc_cfg_M04_AXI 1 0 4 20 160 NJ 160 NJ 160 1340
+preplace netloc zynq_ultra_ps_e_0_M_AXI_HPM0_FPD 1 2 2 730 180 1330
 preplace netloc axi_sc_hp2_M00_AXI 1 2 1 720 280n
-preplace netloc axi_dma_eth_M_AXI_S2MM 1 1 1 N 560
+preplace netloc ETH_AXIS_S2MM_1 1 0 1 NJ 560
+preplace netloc axi_sc_cfg_M02_AXI 1 3 1 1390 590n
 levelinfo -pg 1 -10 210 550 1040 1580 1930 2120
 pagesize -pg 1 -db -bbox -sgen -160 0 2310 1380
 "

@@ -39,6 +39,50 @@ RemoteSystemsTempFiles/
 .program_jtag.ok
 .program_bit.ok
 
+# Vitis one-shot debug/test scripts (transient, kept local)
+vitis_project/_*.py
+vitis_project/_*.ps1
+vitis_project/_*.bat
+vitis_project/burn*.bat
+vitis_project/check_*.ps1
+vitis_project/check_*.bat
+vitis_project/deploy_ov5640_fix.bat
+vitis_project/diag_*.ps1
+vitis_project/fix_*.bat
+vitis_project/fix_*.py
+vitis_project/fix_*.ps1
+vitis_project/hotload_elf.tcl
+vitis_project/listen_probe.py
+vitis_project/ps_eth_echo_client.py
+vitis_project/patch_*.bat
+vitis_project/patch_*.ps1
+vitis_project/patch_psu_*.ps1
+vitis_project/program_auto*.bat
+vitis_project/program_elf_only.tcl
+vitis_project/program_fpga_only.tcl
+vitis_project/program_xsct.bat
+vitis_project/program_xsct.tcl
+vitis_project/read_*.tcl
+vitis_project/verify_bit_sync.tcl
+vitis_project/vivado_program_bit.bat
+vitis_project/xsct_rst_help.tcl
+vitis_project/run_*.ps1
+vitis_project/run_*.bat
+vitis_project/setup_*.ps1
+vitis_project/pkt_*.txt
+vitis_project/net_test_bm/
+vitis_project/.analytics
+
+# Vivado one-shot gen/regen scripts (transient)
+vivado_proj/gen_*.tcl
+vivado_proj/regen_*.tcl
+vivado_proj/regen_bd_force.tcl
+vivado_proj/drc_routed_*.txt
+vivado_proj/route_status_*.txt
+vivado_proj/scripts/build_bit_*.tcl
+vivado_proj/scripts/fix_dma_length_and_build.tcl
+vivado_proj/scripts/impl_from_synth.tcl
+
 # OS / IDE
 Thumbs.db
 Desktop.ini

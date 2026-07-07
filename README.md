@@ -81,12 +81,13 @@ imgproc_zynq4ev_ov5640/
 │   │       └── …
 │   └── imgproc_baremetal_system/    # System project wrapper
 ├── pc_viewer/
-│   ├── udp_test.py                  # PC-side UDP receiver (captures frames)
 │   └── recv_display.py              # Display received frames (PIL/OpenCV)
 ├── tools/
-│   ├── udp_img_viewer.py            # Standalone frame viewer
-│   ├── run_full_flow.ps1            # Vivado → Vitis build flow (PowerShell)
-│   └── start_udp_receiver.ps1       # Launch PC receiver daemon
+│   ├── README_udp.md                # PC-side UDP receiver usage (Chinese)
+│   ├── requirements.txt             # Python dependencies
+│   ├── run_full_flow.ps1            # JTAG + receiver one-click flow
+│   ├── start_udp_receiver.ps1       # Launch PC receiver daemon
+│   └── udp_img_viewer.py            # Standalone frame viewer
 └── boot_images/                     # (If present) Pre-built FSBL/PMU/Bitstream/ELF images
 ```
 
@@ -145,13 +146,30 @@ imgproc_zynq4ev_ov5640/
    - Vitis will download: bitstream → PMU firmware → FSBL → application.
    - Monitor **UART0** (typically 115200 8N1) for startup messages.
 
+### Deploy subcommands (`deploy.bat`)
+
+The convenience script `vitis_project/deploy.bat` (also callable from the repo root via `deploy.bat`) automates the Vitis workflow:
+
+| Command | Description |
+|---------|-------------|
+| `deploy.bat jtag` | Build + program (default) |
+| `deploy.bat program` | Program only (skip build) |
+| `deploy.bat program-elf` | Vivado DONE=HIGH → `psu_init` + `dow` only |
+| `deploy.bat program-auto` | Batch Vivado bit + XSCT post-vivado |
+| `deploy.bat sync` | Copy Vivado bit to Vitis platform |
+| `deploy.bat build` | Build firmware (re-copies impl bit) |
+| `deploy.bat check` | JTAG connectivity check |
+| `deploy.bat all` | Sync + jtag |
+
+See [vitis_project/JTAG.md](vitis_project/JTAG.md) for detailed JTAG flow do's and don'ts.
+
 ### Application entry point (`main.c`)
 
 - Initializes board peripherals: **AXI IIC** (camera control), **OV5640 minimal register setup**, **PS clocking**.
 - Calls `eth_stream_main()` — implements **AXI DMA S2MM** capture path:
   - Configures **DMA** to receive frames from PL `frame_eth_tx` AXIS stream.
   - Formats frames into **8-byte header + 1920×1080 luma** per DMA descriptor.
-  - Sends **UDP packets** to host PC (default `192.168.1.100:5000`).
+  - Sends **UDP packets** to host PC (default destination: `"<pc_ip>:<pc_udp_port>"`; confirm actual values in `eth_stream.c` and `tools/README_udp.md`).
 - Falls back gracefully if **lwIP** or **DMA** not available (prints diagnostic messages).
 
 ### BSP & conditional compilation
@@ -206,8 +224,9 @@ Exact names may vary slightly per BD revision; always cross-check **`xparameters
 
 Defaults in `eth_stream.c` (adjust to your network):
 
-- Board / host IPs: **`192.168.1.10`** → **`192.168.1.100`**
-- UDP ports: destination **5000**, source **5001**
+- Board / host IPs: **`<board_ip>`** → **`<pc_ip>`**
+- UDP ports: destination **`<pc_udp_port>`**, source **`<src_udp_port>`**
+- **Confirm defaults** in `eth_stream.c` (board-side) and `tools/README_udp.md` (PC-side); actual values vary by build revision.
 - PL frame: **8-byte header** (`0xAA 0x55`, frame id, width, height) + **1920×1080** bytes luma
 - UDP payload: **8-byte chunk header** + up to **1392** bytes data; **1400** bytes max application data per UDP packet
 
@@ -237,9 +256,9 @@ Defaults in `eth_stream.c` (adjust to your network):
 - **Symptom:** UART shows "link down" or `lwIP_init()` fails; no packets reach PC.
 - **Check:**
   - Verify **RTL8211FD PHY** is initialized correctly — check your **BD clocking** and **PS Ethernet MDIO/MDC** are routed.
-  - Confirm **IP subnet** in `eth_stream.c` (default `192.168.1.10` for board, `.100` for PC).
-  - Run `ping 192.168.1.10` from your PC; if timeout, check `arp -a` for ARP cache and try manual entry.
-  - On Windows, use **Wireshark** to capture UDP on port 5000 to confirm packet arrival; if seen, issue is likely on frame-reception parsing.
+  - Confirm **IP subnet** in `eth_stream.c` (defaults: board `<board_ip>`, PC `<pc_ip>`).
+  - Run `ping <board_ip>` from your PC; if timeout, check `arp -a` for ARP cache and try manual entry.
+  - On Windows, use **Wireshark** to capture UDP on the configured port to confirm packet arrival; if seen, issue is likely on frame-reception parsing.
 
 ### Bitstream download fails via JTAG
 - **Symptom:** Vitis or `xsct` reports JTAG timeout or device not found.

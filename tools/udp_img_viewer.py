@@ -42,8 +42,8 @@ def main():
         pass
     sock.bind((args.bind, args.port))
     sock.settimeout(5.0)
-    print(f"监听 UDP {args.bind}:{args.port}，等待板子发流（默认板 IP 192.168.1.10）…")
-    print("板端 ETH_DST_IP_STR 须指向本机 IP（默认 192.168.1.100，见 eth_stream.c）")
+    print(f"监听 UDP {args.bind}:{args.port}，等待板子 192.168.1.10 发流…")
+    print("板端目标 IP 须为 192.168.1.69（eth_stream.c ETH_DST_IP_STR）")
     print("按 q 退出窗口")
 
     chunks = {}

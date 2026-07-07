@@ -17,18 +17,15 @@ file mkdir $vitis_hw
 file copy -force $bit_src $bit_dst
 puts "INFO: bit -> $bit_dst"
 
-# psu_init 必须与 Vivado PS DDR 配置一致（JTAG 下载前须 psu_init）
-set psu_candidates [list \
-    [file join $vivado_proj imgproc_axu4evb_ov5640.srcs sources_1 bd zynq_imgproc_bd ip zynq_imgproc_bd_zynq_ultra_ps_e_0_0 psu_init.tcl] \
-    [file join $vivado_proj imgproc_axu4evb_ov5640.ip_user_files mem_init_files psu_init.tcl] \
-]
+# psu_init：仅用 BD 内 canonical 源（勿用 mem_init_files 旧副本）
+set psu_src [file join $vivado_proj imgproc_axu4evb_ov5640.srcs sources_1 bd zynq_imgproc_bd ip zynq_imgproc_bd_zynq_ultra_ps_e_0_0 psu_init.tcl]
 set psu_dst [file join $vitis_hw psu_init.tcl]
-foreach psu_src $psu_candidates {
-    if {[file exists $psu_src]} {
-        file copy -force $psu_src $psu_dst
-        puts "INFO: psu_init.tcl -> $psu_dst"
-        break
-    }
+if {[file exists $psu_src]} {
+    file copy -force $psu_src $psu_dst
+    puts "INFO: psu_init.tcl (BD canonical) -> $psu_dst"
+} else {
+    puts "WARN: canonical psu_init missing: $psu_src"
+    puts "WARN: run vivado_proj/regen_psu_init_and_sync.bat then deploy.bat sync"
 }
 if {![file exists $psu_dst]} {
     puts "WARN: 未找到 psu_init.tcl，JTAG 可能卡在 DDR 初始化"
@@ -57,3 +54,12 @@ set ide_bit [file join $script_dir imgproc_baremetal _ide bitstream imgproc_top_
 file mkdir [file dirname $ide_bit]
 file copy -force $bit_dst $ide_bit
 puts "INFO: ide bit -> $ide_bit"
+
+# 校验 hw bit 与 impl_1 一致（防止烧录陈旧副本）
+set impl_bit [file join $vivado_proj imgproc_axu4evb_ov5640.runs impl_1 imgproc_top_ov5640.bit]
+if {[file exists $impl_bit]} {
+    if {[file size $impl_bit] != [file size $bit_dst]} {
+        return -code error "bit size mismatch after sync — copy failed?"
+    }
+    puts "INFO: bit size verified vs impl_1"
+}

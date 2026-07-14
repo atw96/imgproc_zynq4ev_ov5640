@@ -269,7 +269,7 @@ proc create_root_design { parentCell } {
    CONFIG.c_include_sg {0} \
    CONFIG.c_m_axi_s2mm_data_width {32} \
    CONFIG.c_s2mm_burst_size {256} \
-   CONFIG.c_s_axis_s2mm_tdata_width {8} \
+   CONFIG.c_s_axis_s2mm_tdata_width {32} \
    CONFIG.c_sg_length_width {26} \
  ] $axi_dma_eth
 

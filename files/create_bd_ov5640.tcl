@@ -180,7 +180,7 @@ proc create_bd_ov5640 {} {
         CONFIG.c_include_sg                   {0} \
         CONFIG.c_sg_length_width              {26} \
         CONFIG.c_s2mm_burst_size              {256} \
-        CONFIG.c_s_axis_s2mm_tdata_width      {8} \
+        CONFIG.c_s_axis_s2mm_tdata_width      {32} \
         CONFIG.c_m_axi_s2mm_data_width        {32} \
     ] $dma_eth
     set sc_hp2 [create_bd_cell -type ip \
@@ -305,7 +305,7 @@ proc create_bd_ov5640 {} {
         -vlnv xilinx.com:interface:axis_rtl:1.0 \
         ETH_AXIS_S2MM]
     set_property -dict [list \
-        CONFIG.TDATA_NUM_BYTES {1} \
+        CONFIG.TDATA_NUM_BYTES {4} \
         CONFIG.HAS_TLAST {1} \
     ] $eth_axis_port
     # ── OV5640 GPIO 控制 ──

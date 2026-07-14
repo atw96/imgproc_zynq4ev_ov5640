@@ -44,14 +44,28 @@ static void ov5640_gpio_write(u32 value)
 
 int Ov5640_PowerOn(void)
 {
-	/* ??? bit1?AE10(CAM_GPIO)?bit0(reset_n) ?????????????? */
+	/* bit1=AE10 CAM_GPIO（官方复位脚）；bit0=reset_n 未出封装 */
 	const u32 released =
 		(1U << OV5640_BIT_RESET_N) | (1U << OV5640_BIT_CAM_GPIO);
 	ov5640_gpio_write(1U << OV5640_BIT_RESET_N);
 	sleep(1);
 	ov5640_gpio_write(released);
 	sleep(1);
-	xil_printf("OV5640 GPIO: CAM_GPIO reset done (1s low / 1s high)\r\n");
+	xil_printf("OV5640 GPIO: CAM_GPIO reset done (1s low / 1s high) DATA=0x%X\r\n",
+		   (unsigned)(XGpio_ReadReg(GPIO_BASEADDR, XGPIO_DATA_OFFSET) & 0x3U));
+	return XST_SUCCESS;
+}
+
+/* A/B: CAM_GPIO 保持低电平（与官方最终态相反），排查接线/极性 */
+int Ov5640_PowerOn_AltPolarity(void)
+{
+	const u32 held_low = (1U << OV5640_BIT_RESET_N);
+	ov5640_gpio_write(held_low | (1U << OV5640_BIT_CAM_GPIO));
+	sleep(1);
+	ov5640_gpio_write(held_low);
+	sleep(2);
+	xil_printf("OV5640 GPIO: ALT CAM_GPIO held LOW DATA=0x%X\r\n",
+		   (unsigned)(XGpio_ReadReg(GPIO_BASEADDR, XGPIO_DATA_OFFSET) & 0x3U));
 	return XST_SUCCESS;
 }
 

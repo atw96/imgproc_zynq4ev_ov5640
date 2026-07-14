@@ -1,58 +1,58 @@
-# imgproc_mpsoc ISP ?????Session Handoff?
+# imgproc_mpsoc ISP — Session Handoff
 
-> ???2026-07-06 18:10
-> ???<repo_root>
-> ???ALINX AXU4EVB (ZU4EV) + OV5640 MIPI
-> ????Vivado/Vitis 2020.1
-
----
-
-## 1. ? bit ??
-
-| ?? | ???? | generic | ?? |
-|------|----------|---------|------|
-| `impl_1/imgproc_top_ov5640.bit` | `fix_dma_length_and_build.tcl` | `ISP_USE_TEST_RAW=1` `ETH_USE_CLAHE=0` | **Bit A** test_raw ? 11�11+bilateral ? ETH?CLAHE ??? DDR/HDMI? |
-| `impl_1/imgproc_top_ov5640_mipi.bit` | `build_bit_mipi.tcl` | `ISP_USE_TEST_RAW=0` `ETH_USE_CLAHE=1` | **Bit B** ?? MIPI ???? D? |
-
-**??** impl ??? synth DCP ???????? `reset_run synth_1` + `reset_run impl_1`?
-
-??????`impl_1/*.bit` ?? **>** RTL ?????`deploy.bat build` ? **??** ? `impl_1` ?? bit?`sysproj build` ???? XSA ?? `hw/*.bit`??
+> **Date:** 2026-07-06 18:10  
+> **Project root:** `<repo_root>`  
+> **Platform:** ALINX AXU4EVB (ZU4EV) + OV5640 MIPI  
+> **Toolchain:** Vivado / Vitis 2020.1
 
 ---
 
-## 2. Vivado ??/??
+## 1. Bitstream variants
+
+| Bit | Build script | Generics | Notes |
+|-----|-------------|----------|-------|
+| `impl_1/imgproc_top_ov5640.bit` | `fix_dma_length_and_build.tcl` | `ISP_USE_TEST_RAW=1` `ETH_USE_CLAHE=0` | **Bit A** — test pattern → 11x11 + bilateral → ETH; CLAHE → DDR/HDMI |
+| `impl_1/imgproc_top_ov5640_mipi.bit` | `build_bit_mipi.tcl` | `ISP_USE_TEST_RAW=0` `ETH_USE_CLAHE=1` | **Bit B** — live MIPI sensor → full ISP |
+
+If impl synth DCP is older than RTL, run `reset_run synth_1` + `reset_run impl_1`.
+
+After `deploy.bat build`, the bit is copied **from** `impl_1/*.bit` (the `sysproj build` step may otherwise overwrite `hw/*.bit` with the XSA's embedded bit).
+
+---
+
+## 2. Vivado build / notes
 
 ```bat
 cd vivado_proj
-<VIVADO_INSTALL>/2020.1\bin\vivado.bat -mode batch -source scripts\fix_dma_length_and_build.tcl
+vivado.bat -mode batch -source scripts\fix_dma_length_and_build.tcl
 ```
 
-- ????`ETH_AXIS_S2MM_tkeep` ??? `1'b1`????? DMA ???? 0?
-- CLAHE?`clahe_engine` MAP ??? tile BRAM ????????????????
+- `ETH_AXIS_S2MM_tkeep` tied to `1'b1` (otherwise DMA received all zeros).
+- CLAHE `clahe_engine` MAP phase now replays tiles from BRAM (fixed stall).
 
 ---
 
-## 3. Vitis ???
+## 3. Vitis flow
 
 ```bat
 cd vitis_project
 py -3 preflight_debug.py --fix
 deploy.bat sync
-deploy.bat build    :: ???? re-copy impl bit
-deploy.bat program  :: ???? fpga OK
+deploy.bat build    :: re-copies impl bit after build
+deploy.bat program  :: checks for fpga OK
 ```
 
-- `program_jtag.tcl`?fpga ??? `exit 1`???? `catch`?
-- `program_jtag_norst.tcl`?**??**?`burn_silent.bat` ????fpga ??????
-- `program_fpga_only.tcl`??? PL + ? `0xA0000208` ?? DEAD
-- **PS ? `0xA0000008` ??? AXI**?`pl_isp.c` ???????? RTL `ISP_USE_TEST_RAW` generic
+- `program_jtag.tcl` exits with code 1 on `fpga` failure (not silently `catch`-ed).
+- `program_jtag_norst.tcl` is **deprecated** — `burn_silent.bat` may report false success.
+- `program_fpga_only.tcl` programs PL only; verify with register `0xA0000208` (should not be `0xDEAD`).
+- **Do not write `0xA0000008` from PS** — source selection moved to RTL `ISP_USE_TEST_RAW` generic.
 
 ---
 
-## 4. ??????NUM_RD_REGS=7?
+## 4. Status register map (`NUM_RD_REGS=7`)
 
-| ?? | ?? |
-|------|------|
+| Offset | Field |
+|--------|-------|
 | 0x200 | dead_cnt |
 | 0x204 | eth_tx_frame_cnt + buf_sel |
 | 0x208 | mipi_beat |
@@ -61,38 +61,39 @@ deploy.bat program  :: ???? fpga OK
 | 0x214 | clahe_pixel_cnt |
 | 0x218 | fifo_ovf |
 
-`0x208+` ?? `0xDEADC0DE` ? ????? PL?NUM_RD_REGS?2??????? `hw/*.bit`?
+`0x208+` returning `0xDEADC0DE` means the PL has fewer `NUM_RD_REGS` than expected — check `hw/*.bit` is up-to-date.
 
 ---
 
-## 5. ?????115200?
+## 5. UART log (115200)
 
 ```
 [PL] ISP res=1080p (RTL defaults: test_raw+clahe_eth)
 [PL] st ... raw=?? mipi_beat=... clahe=... fifo_ovf=0
-[PL] status[1]=0x.... (eth_frames/buf ? 16b ??)
+[PL] status[1]=0x.... (eth_frames/buf 16b each)
 [ETH] PL DMA mode (2073608 B/frame, wait TLAST)
 [ETH] sent frame 1 (1920x1080)
 ```
 
-2026-07-06 18:08 ???tkeep ?????PL `eth_frames=8`?PS `RxBuf=0` + `bad frame header`??? tkeep ????
+2026-07-06 18:08 — after tkeep fix: PL `eth_frames=8`, PS `RxBuf=0` + `bad frame header` → resolved by tying tkeep.
 
 ---
 
-## 6. PC ??
+## 6. PC receiver
 
 ```powershell
-.\setup_ps_eth_motorcomm.ps1   # PC <pc_ip>, ? <board_ip>
+.\setup_ps_eth.ps1          # PC <pc_ip>/24 + static ARP for board <board_ip>
 cd ..\pc_viewer
-py -3 recv_display.py          # UDP 5002
+py -3 recv_display.py --port <port>   # must match ETH_DST_PORT
 ```
 
-Windows ? `WinError 10013`??? 5002 ??????`netstat -ano | findstr :5002`?????????
+Windows `WinError 10013`: check `netstat -ano | findstr :<port>`; UDP reserved range via `netsh interface ipv4 show excludedportrange protocol=udp`.
+
+**2026-07-08 — link established:** board broadcast to `<broadcast_ip>` + PS gradient fallback; pktmon shows UDP traffic. PL DMA requires Vivado re-synthesis (`pat_raw_ready=1`).
 
 ---
 
-## 7. ??
+## 7. References
 
-- doc/course_s2/24_an5641_mipi_hdmi?OV5640?
-- doc/course_s2/09_ps_net?????
-- ``
+- `doc/course_s2/24_an5641_mipi_hdmi/` — OV5640 reference
+- `doc/course_s2/09_ps_net/` — PS Ethernet reference

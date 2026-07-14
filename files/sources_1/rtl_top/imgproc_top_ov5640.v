@@ -1,8 +1,8 @@
-// imgproc_top_ov5640.v -- Vivado 综合顶层
-// 板卡: ALINX AXU4EVB (xczu4ev-sfvc784-2-i)，传感器: AV5641 (OV5640 MIPI CSI-2)
+// imgproc_top_ov5640.v -- Vivado ????
+// ??: ALINX AXU4EVB (xczu4ev-sfvc784-2-i)????: AV5641 (OV5640 MIPI CSI-2)
 //
-// 模块层次:
-//   imgproc_top_ov5640 (本文件)
+// ????:
+//   imgproc_top_ov5640 (????
 //     +-- zynq_imgproc_bd_wrapper  [BD: PS + MIPI RX + I2C + GPIO]
 //     +-- u_axil_cfg   (axil_cfg_reg)
 //     +-- u_sensor_if  (sensor_if, MIPI_MODE=1)
@@ -13,21 +13,21 @@
 //     +-- u_clahe      (clahe_engine)
 //     +-- u_ddr3_buf   (ddr3_pixel_buf)
 //     +-- u_display    (zynq_display_ctrl)
-//     +-- u_frame_eth  (project/src/frame_eth_tx.v → BD AXI DMA S2MM)
+//     +-- u_frame_eth  (project/src/frame_eth_tx.v ??BD AXI DMA S2MM)
 //
-// BD 对外接口由 create_bd_ov5640.tcl 定义端口名。
-//   BD -> 本 RTL:
-//     pl_clk, rst_n          系统时钟 ~150 MHz / 复位 (pl_clk 域)
-//     pclk, pclk_resetn      HDMI 像素时钟 148.5 MHz / 复位 (MMCM)
+// BD ??????create_bd_ov5640.tcl ???????
+//   BD -> ??RTL:
+//     pl_clk, rst_n          ???? ~150 MHz / ?? (pl_clk ??
+//     pclk, pclk_resetn      HDMI ???? 148.5 MHz / ?? (MMCM)
 //     VIDEO_OUT_tdata[19:0], VIDEO_OUT_tvalid, VIDEO_OUT_tlast,
 //     VIDEO_OUT_tuser, VIDEO_OUT_tready
-//     M_AXIL_CFG_* (AXI-Lite Master -> ISP 配置从机)
-//   本 RTL -> BD:
-//     S_AXI_HP0_* (AXI4 只写 64-bit -> display_ctrl)
-//     S_AXI_HP1_* (AXI4 读写 64-bit -> ddr3_pixel_buf)
+//     M_AXIL_CFG_* (AXI-Lite Master -> ISP ????)
+//   ??RTL -> BD:
+//     S_AXI_HP0_* (AXI4 ?? 64-bit -> display_ctrl)
+//     S_AXI_HP1_* (AXI4 ?? 64-bit -> ddr3_pixel_buf)
 //     frame_done_irq
-//     ETH_AXIS_S2MM_* — PL frame_eth_tx → BD AXI DMA S2MM（送 PS DDR）
-//   物理引脚:
+//     ETH_AXIS_S2MM_* ??PL frame_eth_tx ??BD AXI DMA S2MM???PS DDR??
+//   ????:
 //     mipi_phy_if_*, iic_scl_*, iic_sda_*
 //     ov5640_reset_n, ov5640_pwdn, ov5640_mclk
 //     hdmi_d[23:0], hdmi_clk, hdmi_hsync, hdmi_vsync, hdmi_de
@@ -37,7 +37,7 @@
 
 module imgproc_top_ov5640 #(
     parameter RAW_W    = 10,   // OV5640 RAW10
-    parameter PIXEL_W  = 13,   // 内部 Q0.13 定点像素
+    parameter PIXEL_W  = 13,   // ?? Q0.13 ????
     parameter AXI_DW   = 64,
     parameter AXI_AW   = 32,
     parameter LINE_LEN = 1920, // OV5640 1080p
@@ -48,28 +48,28 @@ module imgproc_top_ov5640 #(
     parameter ETH_USE_CLAHE    = 1'b1
 )(
     // -------------------------------------------------------------------------
-    // 物理引脚（PACKAGE_PIN / IOSTANDARD 见 XDC）
+    // ?????PACKAGE_PIN / IOSTANDARD ??XDC??
     // -------------------------------------------------------------------------
 
-    // MIPI CSI-2 差分接口（接 BD mipi_phy_if）
+    // MIPI CSI-2 ?????? BD mipi_phy_if??
     input  wire        mipi_phy_if_clk_p,
     input  wire        mipi_phy_if_clk_n,
     input  wire [1:0]  mipi_phy_if_data_p,
     input  wire [1:0]  mipi_phy_if_data_n,
 
-    // I2C 双向总线（IOBUF 在本顶层）
+    // I2C ?????IOBUF ??????
     inout  wire        iic_scl_io,
     inout  wire        iic_sda_io,
 
-    // OV5640 控制 GPIO
+    // OV5640 ?? GPIO
     //output wire        ov5640_reset_n,
     output wire        ov5640_pwdn,
     output wire        ov5640_mclk,    // 24 MHz from PS FCLK_CLK1
 
     // -------------------------------------------------------------------------
-    // HDMI 输出 -> ADV7511 并行 24-bit RGB (Bank 66, LVCMOS33)
-    //   pclk = 148.5 MHz (MMCM)，1920x1080@60Hz 灰度显示
-    //   灰度映射: R=G=B = Y[12:5]
+    // HDMI ?? -> ADV7511 ?? 24-bit RGB (Bank 66, LVCMOS33)
+    //   pclk = 148.5 MHz (MMCM)??920x1080@60Hz ????
+    //   ????: R=G=B = Y[12:5]
     // -------------------------------------------------------------------------
     output wire                  hdmi_clk,
     output wire                  hdmi_hsync,
@@ -78,31 +78,31 @@ module imgproc_top_ov5640 #(
     output wire [23:0]           hdmi_d
 
     // -------------------------------------------------------------------------
-    // 状态输出（可选引出顶层）
+    // ????????????
     // -------------------------------------------------------------------------
     //output wire [31:0]           dead_pixel_cnt_out,
     //output wire                  buf_sel_out
 );
 
     // =========================================================================
-    // A. 内部信号声明与 BD / RTL 互连
+    // A. ????????BD / RTL ??
     // =========================================================================
 
-    // A1. 时钟与复位（来自 BD）
-    wire        pl_clk;       // ~150 MHz (PS FCLK_CLK0，主 AXI / ISP 时钟)
-    wire        rst_n;        // 低有效复位 (pl_clk 域 peripheral_aresetn)
-    wire        pclk;         // 148.5 MHz HDMI 像素时钟 (MMCM clk_wiz 输出)
-    wire        pclk_resetn;  // 低有效复位 (pclk 域，MMCM locked 后有效)
+    // A1. ???????? BD??
+    wire        pl_clk;       // ~150 MHz (PS FCLK_CLK0?? AXI / ISP ??)
+    wire        rst_n;        // ??????(pl_clk ??peripheral_aresetn)
+    wire        pclk;         // 148.5 MHz HDMI ???? (MMCM clk_wiz ??)
+    wire        pclk_resetn;  // ??????(pclk ??MMCM locked ????
 
-    // A8. 显示控制器 VGA 中间信号 (display_ctrl -> 顶层再送 HDMI)
+    // A8. ??????VGA ???? (display_ctrl -> ?????HDMI)
     wire                  vga_hsync_i;
     wire                  vga_vsync_i;
     wire                  vga_de_i;
     wire [PIXEL_W-1:0]    vga_pixel_i;
     wire                  vga_active_i;
 
-    // A2. MIPI AXI-Stream（来自 BD VIDEO_OUT）
-    // Vivado 为 Master AXIS 生成的信号名:
+    // A2. MIPI AXI-Stream????BD VIDEO_OUT??
+    // Vivado ??Master AXIS ??????:
     //   VIDEO_OUT_tdata, VIDEO_OUT_tvalid, VIDEO_OUT_tready,
     //   VIDEO_OUT_tlast, VIDEO_OUT_tuser
     wire [19:0] mipi_tdata_w;
@@ -111,8 +111,8 @@ module imgproc_top_ov5640 #(
     wire        mipi_tuser_w;
     wire        mipi_tready_w;
 
-    // A3. AXI4-Lite 配置（BD M_AXIL_CFG Master -> 本模块从机）
-    // 对 ISP 侧为 AXI4-Lite 从机
+    // A3. AXI4-Lite ???BD M_AXIL_CFG Master -> ??????
+    // ??ISP ?? AXI4-Lite ??
     wire [31:0] s_axil_awaddr;
     wire        s_axil_awvalid;
     wire        s_axil_awready;
@@ -131,7 +131,7 @@ module imgproc_top_ov5640 #(
     wire        s_axil_rvalid;
     wire        s_axil_rready;
 
-    // A4. AXI4 HP0：display_ctrl Master -> BD Slave（写帧缓存）
+    // A4. AXI4 HP0?display_ctrl Master -> BD Slave??????
     wire [AXI_AW-1:0]   m_axi_hp0_awaddr;
     wire [7:0]           m_axi_hp0_awlen;
     wire [2:0]           m_axi_hp0_awsize;
@@ -147,7 +147,7 @@ module imgproc_top_ov5640 #(
     wire                 m_axi_hp0_bvalid;
     wire                 m_axi_hp0_bready;
 
-    // A5. AXI4 HP1：ddr3_pixel_buf Master -> BD Slave（DDR 乒乓）
+    // A5. AXI4 HP1?ddr3_pixel_buf Master -> BD Slave?DDR ????
     wire [AXI_AW-1:0]   m_axi_hp1_awaddr;
     wire [7:0]           m_axi_hp1_awlen;
     wire [2:0]           m_axi_hp1_awsize;
@@ -173,32 +173,31 @@ module imgproc_top_ov5640 #(
     wire                 m_axi_hp1_rvalid;
     wire                 m_axi_hp1_rlast;
     wire                 m_axi_hp1_rready;
-    // AXI DMA S2MM 信号
-    wire [7:0]           eth_axis_tdata;
+    // AXI DMA S2MM (32-bit RGBX)
+    wire [31:0]          eth_axis_tdata;
     wire                 eth_axis_tvalid;
-    wire                 eth_axis_tready;   
+    wire                 eth_axis_tready;
     wire                 eth_axis_tlast;
-    wire                 eth_axis_tkeep = 1'b1;
+    wire [3:0]           eth_axis_tkeep;
     wire [15:0]          eth_tx_frame_cnt;
     wire [31:0]          mipi_beat_cnt_w;
     wire [31:0]          mipi_pix_cnt_w;
     reg  [31:0]          raw_pixel_cnt_r;
     reg  [31:0]          clahe_pixel_cnt_r;
     reg  [31:0]          fifo_ovf_cnt_r;
-    reg  [20:0]          bilat_frame_pix_r;
 
-    // A6. I2C 三态（BD 内 IOBUF，本顶层再包一层）
+    // A6. I2C ???BD ??IOBUF?????????
     wire iic_scl_i_w, iic_scl_o_w, iic_scl_t_w;
     wire iic_sda_i_w, iic_sda_o_w, iic_sda_t_w;
 
-    // A7. 中断 / 状态
+    // A7. ?? / ???
     wire frame_done_irq_w;
     wire buf_sel_w;
     wire [31:0] dead_cnt_w;
 
     // =========================================================================
-    // B. IOBUF：I2C 双向 IO
-    //    T=1 高阻输入；T=0 输出 iic_*_o_w
+    // B. IOBUF?I2C ?? IO
+    //    T=1 ?????T=0 ?? iic_*_o_w
     // =========================================================================
     IOBUF u_iic_scl_buf (
         .IO (iic_scl_io),
@@ -214,18 +213,18 @@ module imgproc_top_ov5640 #(
     );
 
     // =========================================================================
-    // C. Block Design 封装例化
-    //    端口名与 create_bd_ov5640.tcl 中 BD 一致
-    //    AXI 命名: <接口>_<信号>
+    // C. Block Design ????
+    //    ???? create_bd_ov5640.tcl ??BD ???
+    //    AXI ??: <??>_<??>
     // =========================================================================
     zynq_imgproc_bd_wrapper u_bd (
-        // MIPI 差分物理接口
+        // MIPI ??????
         .mipi_phy_if_clk_p  (mipi_phy_if_clk_p),
         .mipi_phy_if_clk_n  (mipi_phy_if_clk_n),
         .mipi_phy_if_data_p (mipi_phy_if_data_p),
         .mipi_phy_if_data_n (mipi_phy_if_data_n),
 
-        // 时钟与复位
+        // ??????
         .pl_clk             (pl_clk),
         .rst_n              (rst_n),
         .pclk               (pclk),
@@ -238,14 +237,14 @@ module imgproc_top_ov5640 #(
         .VIDEO_OUT_tlast    (mipi_tlast_w),
         .VIDEO_OUT_tuser    (mipi_tuser_w),
 
-        // PL -> BD：AXI DMA S2MM（以太网帧字节流）
+        // PL -> BD?AXI DMA S2MM??????????
         .ETH_AXIS_S2MM_tdata  (eth_axis_tdata),
         .ETH_AXIS_S2MM_tvalid (eth_axis_tvalid),
         .ETH_AXIS_S2MM_tready (eth_axis_tready),
         .ETH_AXIS_S2MM_tlast  (eth_axis_tlast),
         .ETH_AXIS_S2MM_tkeep  (eth_axis_tkeep),
 
-        // AXI-Lite 配置 Master
+        // AXI-Lite ?? Master
         .M_AXIL_CFG_awaddr  (s_axil_awaddr),
         .M_AXIL_CFG_awvalid (s_axil_awvalid),
         .M_AXIL_CFG_awready (s_axil_awready),
@@ -264,7 +263,7 @@ module imgproc_top_ov5640 #(
         .M_AXIL_CFG_rvalid  (s_axil_rvalid),
         .M_AXIL_CFG_rready  (s_axil_rready),
 
-        // AXI4 HP0 Slave（写帧缓存）
+        // AXI4 HP0 Slave??????
         .S_AXI_HP0_awaddr   (m_axi_hp0_awaddr),
         .S_AXI_HP0_awlen    (m_axi_hp0_awlen),
         .S_AXI_HP0_awsize   (m_axi_hp0_awsize),
@@ -280,7 +279,7 @@ module imgproc_top_ov5640 #(
         .S_AXI_HP0_bvalid   (m_axi_hp0_bvalid),
         .S_AXI_HP0_bready   (m_axi_hp0_bready),
 
-        // AXI4 HP1 Slave（DDR 乒乓）
+        // AXI4 HP1 Slave?DDR ????
         .S_AXI_HP1_awaddr   (m_axi_hp1_awaddr),
         .S_AXI_HP1_awlen    (m_axi_hp1_awlen),
         .S_AXI_HP1_awsize   (m_axi_hp1_awsize),
@@ -307,7 +306,7 @@ module imgproc_top_ov5640 #(
         .S_AXI_HP1_rlast    (m_axi_hp1_rlast),
         .S_AXI_HP1_rready   (m_axi_hp1_rready),
 
-        // 帧完成中断
+        // ??????
         .frame_done_irq     (frame_done_irq_w),
 
         // OV5640 GPIO
@@ -315,7 +314,7 @@ module imgproc_top_ov5640 #(
         .ov5640_pwdn        (ov5640_pwdn),
         .ov5640_mclk        (ov5640_mclk),
 
-        // I2C 三态
+        // I2C ???
         .iic_scl_i          (iic_scl_i_w),
         .iic_scl_o          (iic_scl_o_w),
         .iic_scl_t          (iic_scl_t_w),
@@ -325,7 +324,7 @@ module imgproc_top_ov5640 #(
     );
 
     // =========================================================================
-    // D. AXI4-Lite 配置寄存器 (axil_cfg_reg)
+    // D. AXI4-Lite ??????(axil_cfg_reg)
     // =========================================================================
     localparam NUM_WR_REGS = 10;
     localparam NUM_RD_REGS = 7;
@@ -365,14 +364,15 @@ module imgproc_top_ov5640 #(
         .status_i         (cfg_status)
     );
 
-    // 寄存器域解析
+    // ??????
     wire [31:0] r_fb_addr_a   = cfg_wreg[0*32 +: 32];
     wire [31:0] r_fb_addr_b   = cfg_wreg[1*32 +: 32];
     wire [31:0] r_ctrl        = cfg_wreg[2*32 +: 32];
     wire [12:0] r_black_level = cfg_wreg[3*32 +: 13];
-    wire [11:0] r_wb_gain_r   = cfg_wreg[4*32 +: 12];
-    wire [11:0] r_wb_gain_g   = cfg_wreg[5*32 +: 12];
-    wire [11:0] r_wb_gain_b   = cfg_wreg[6*32 +: 12];
+    /* PS ?? config ? cfg_wreg=0?wb_gain=0 ?? R/G/B ??? 0 ? ?? */
+    wire [11:0] r_wb_gain_r   = (|cfg_wreg[4*32 +: 12]) ? cfg_wreg[4*32 +: 12] : 12'd1024;
+    wire [11:0] r_wb_gain_g   = (|cfg_wreg[5*32 +: 12]) ? cfg_wreg[5*32 +: 12] : 12'd1024;
+    wire [11:0] r_wb_gain_b   = (|cfg_wreg[6*32 +: 12]) ? cfg_wreg[6*32 +: 12] : 12'd1024;
     wire [31:0] r_gamma_wr    = cfg_wreg[7*32 +: 32];
     wire [31:0] r_ddr3_base   = cfg_wreg[8*32 +: 32];
     wire [31:0] r_sy_lut      = cfg_wreg[9*32 +: 32];
@@ -393,9 +393,9 @@ module imgproc_top_ov5640 #(
     wire [12:0] sy_lut_wd     = r_sy_lut[12:0];
 
     // =========================================================================
-    // E. 传感器：MIPI AXI-Stream -> Q0.13 像素流
-    //    MIPI_MODE=1: 从 mipi_tdata[19:0] 解包 2 lane RAW10
-    //    Q0.13: P = {RAW10[9:0], 3'b0}（左移 3 位 max=8184)
+    // E. ????MIPI AXI-Stream -> Q0.13 ????
+    //    MIPI_MODE=1: ??mipi_tdata[19:0] ?? 2 lane RAW10
+    //    Q0.13: P = {RAW10[9:0], 3'b0}????3 ??max=8184)
     // =========================================================================
     wire [PIXEL_W-1:0] si_raw_data;
     wire               si_raw_valid;
@@ -419,25 +419,25 @@ module imgproc_top_ov5640 #(
         .PIXEL_W   (PIXEL_W),
         .IMG_W     (IMG_W),
         .IMG_H     (IMG_H),
-        .BAYER_FMT (0),        // RGGB (OV5640 默认)
+        .BAYER_FMT (0),        // RGGB (OV5640 ??)
         .VSYNC_POL (0),
         .HREF_POL  (0),
-        .MIPI_MODE (1)         // MIPI CSI-2 模式
+        .MIPI_MODE (1)         // MIPI CSI-2 ??
     ) u_sensor_if (
-        .pclk        (pl_clk),  // MIPI：pl_clk 解包时钟
+        .pclk        (pl_clk),  // MIPI?pl_clk ????
         .rst_n       (rst_n),
-        // DVP 未用接 0
+        // DVP ????0
         .dvp_data    ({RAW_W{1'b0}}),
         .dvp_href    (1'b0),
         .dvp_vsync   (1'b0),
         .dvp_pclk_en (1'b0),
-        // MIPI AXI4-Stream 输入
+        // MIPI AXI4-Stream ??
         .mipi_tdata  (mipi_tdata_w),
         .mipi_tvalid (mipi_tvalid_w),
         .mipi_tready (mipi_tready_w),
         .mipi_tlast  (mipi_tlast_w),
         .mipi_tuser  (mipi_tuser_w),
-        // 像素流输出 (Q0.13, pl_clk 域)
+        // ??????(Q0.13, pl_clk ??
         .m_raw_data  (mipi_raw_data),
         .m_raw_valid (mipi_raw_valid),
         .m_raw_hsync (mipi_raw_hsync),
@@ -451,7 +451,7 @@ module imgproc_top_ov5640 #(
         .mipi_pix_cnt  (mipi_pix_cnt_w)
     );
 
-    assign pat_raw_ready = ~clahe_fifo_almost_full;
+    assign pat_raw_ready = 1'b1;  /* ?? CLAHE FIFO ?? RAW ???????? */
 
     isp_raw_pat_gen #(
         .RAW_W   (RAW_W),
@@ -475,9 +475,9 @@ module imgproc_top_ov5640 #(
     assign si_raw_vsync = isp_src_test ? pat_raw_vsync : mipi_raw_vsync;
 
     // =========================================================================
-    // F. ISP 预处理（流水线）
+    // F. ISP front-end (demosaic RGB + gamma)
     // =========================================================================
-    wire [PIXEL_W-1:0] preproc_Y;
+    wire [PIXEL_W-1:0] preproc_Y, preproc_R, preproc_G, preproc_B;
     wire [15:0]         preproc_CbCr;
     wire               preproc_valid, preproc_hsync, preproc_vsync;
     wire               preproc_sof;
@@ -498,6 +498,9 @@ module imgproc_top_ov5640 #(
         .s_raw_ready    (),
         .m_Y_data       (preproc_Y),
         .m_CbCr_data    (preproc_CbCr),
+        .m_R_data       (preproc_R),
+        .m_G_data       (preproc_G),
+        .m_B_data       (preproc_B),
         .m_pix_valid    (preproc_valid),
         .m_pix_hsync    (preproc_hsync),
         .m_pix_vsync    (preproc_vsync),
@@ -513,96 +516,135 @@ module imgproc_top_ov5640 #(
     );
 
     // =========================================================================
-    // G. 11 行行缓冲
+    // G/H/I. Per-channel linebuf + enhance + bilateral (R/G/B)
     // =========================================================================
     localparam NUM_LINES = 11;
-    wire [PIXEL_W*NUM_LINES-1:0] col_pixels;
-    wire                          col_valid;
-    wire [10:0]                   col_x, col_y;
-    wire                          col_sof;
 
-    line_buffer_ctrl #(
-        .PIXEL_W   (PIXEL_W),
-        .LINE_LEN  (LINE_LEN),
-        .NUM_LINES (NUM_LINES),
-        .IMG_H     (IMG_H)
-    ) u_linebuf (
-        .clk            (pl_clk),
-        .rst_n          (rst_n),
-        .s_pixel_tdata  (preproc_Y),
-        .s_pixel_tvalid (preproc_valid),
-        .s_pixel_tlast  (preproc_hsync),
-        .s_pixel_sof    (preproc_sof),
-        .s_pixel_tready (),
-        .col_pixels     (col_pixels),
-        .col_valid      (col_valid),
-        .col_x          (col_x),
-        .col_y          (col_y),
-        .col_sof        (col_sof),
-        .buf_full       (),
-        .fill_lines     (),
-        .wr_ptr_x       ()
+    wire [PIXEL_W-1:0] bilat_R, bilat_G, bilat_B;
+    wire               bilat_valid_r, bilat_valid_g, bilat_valid_b;
+    wire               bilat_sof_r, bilat_sof_g, bilat_sof_b;
+    wire               bilat_hsync_g;
+
+    wire [PIXEL_W*NUM_LINES-1:0] col_pix_r, col_pix_g, col_pix_b;
+    wire               col_valid_r, col_valid_g, col_valid_b;
+    wire [10:0]        col_x_r, col_y_r, col_x_g, col_y_g, col_x_b, col_y_b;
+    wire               col_sof_r, col_sof_g, col_sof_b;
+
+    wire [PIXEL_W-1:0] enh_R, enh_G, enh_B;
+    wire               enh_valid_r, enh_valid_g, enh_valid_b;
+    wire               enh_sof_r, enh_sof_g, enh_sof_b;
+    wire [10:0]        enh_x_r, enh_y_r, enh_x_g, enh_y_g, enh_x_b, enh_y_b;
+
+    line_buffer_ctrl #(.PIXEL_W(PIXEL_W), .LINE_LEN(LINE_LEN), .NUM_LINES(NUM_LINES), .IMG_H(IMG_H)) u_linebuf_r (
+        .clk(pl_clk), .rst_n(rst_n),
+        .s_pixel_tdata(preproc_R), .s_pixel_tvalid(preproc_valid),
+        .s_pixel_tlast(preproc_hsync), .s_pixel_sof(preproc_sof), .s_pixel_tready(),
+        .col_pixels(col_pix_r), .col_valid(col_valid_r),
+        .col_x(col_x_r), .col_y(col_y_r), .col_sof(col_sof_r),
+        .buf_full(), .fill_lines(), .wr_ptr_x()
+    );
+    line_buffer_ctrl #(.PIXEL_W(PIXEL_W), .LINE_LEN(LINE_LEN), .NUM_LINES(NUM_LINES), .IMG_H(IMG_H)) u_linebuf_g (
+        .clk(pl_clk), .rst_n(rst_n),
+        .s_pixel_tdata(preproc_G), .s_pixel_tvalid(preproc_valid),
+        .s_pixel_tlast(preproc_hsync), .s_pixel_sof(preproc_sof), .s_pixel_tready(),
+        .col_pixels(col_pix_g), .col_valid(col_valid_g),
+        .col_x(col_x_g), .col_y(col_y_g), .col_sof(col_sof_g),
+        .buf_full(), .fill_lines(), .wr_ptr_x()
+    );
+    line_buffer_ctrl #(.PIXEL_W(PIXEL_W), .LINE_LEN(LINE_LEN), .NUM_LINES(NUM_LINES), .IMG_H(IMG_H)) u_linebuf_b (
+        .clk(pl_clk), .rst_n(rst_n),
+        .s_pixel_tdata(preproc_B), .s_pixel_tvalid(preproc_valid),
+        .s_pixel_tlast(preproc_hsync), .s_pixel_sof(preproc_sof), .s_pixel_tready(),
+        .col_pixels(col_pix_b), .col_valid(col_valid_b),
+        .col_x(col_x_b), .col_y(col_y_b), .col_sof(col_sof_b),
+        .buf_full(), .fill_lines(), .wr_ptr_x()
     );
 
-    wire [PIXEL_W-1:0] centre_pix = col_pixels[5*PIXEL_W +: PIXEL_W];
+    wire [PIXEL_W-1:0] centre_r = col_pix_r[5*PIXEL_W +: PIXEL_W];
+    wire [PIXEL_W-1:0] centre_g = col_pix_g[5*PIXEL_W +: PIXEL_W];
+    wire [PIXEL_W-1:0] centre_b = col_pix_b[5*PIXEL_W +: PIXEL_W];
 
-    // =========================================================================
-    // H. 11x11 局部细节增强
-    // =========================================================================
-    wire [PIXEL_W-1:0] enh_Y;
-    wire               enh_valid;
-    wire               enh_sof;
-    wire [10:0]        enh_x, enh_y;
-
-    local_detail_enhance_11x11 #(
-        .PIXEL_W  (PIXEL_W),
-        .WIN_SIZE (11),
-        .LINE_LEN (LINE_LEN)
-    ) u_detail_enh (
-        .clk         (pl_clk),
-        .rst_n       (rst_n),
-        .col_pixels  (col_pixels),
-        .col_valid   (col_valid),
-        .col_x       (col_x),
-        .col_y       (col_y),
-        .col_sof     (col_sof),
-        .centre_pix  (centre_pix),
-        .lut_wr_data (sy_lut_wd),
-        .lut_wr_addr (sy_lut_wa),
-        .lut_wr_en   (sy_lut_we),
-        .m_enh_data  (enh_Y),
-        .m_enh_valid (enh_valid),
-        .m_enh_x     (enh_x),
-        .m_enh_y     (enh_y),
-        .m_enh_sof   (enh_sof)
+    local_detail_enhance_11x11 #(.PIXEL_W(PIXEL_W), .WIN_SIZE(11), .LINE_LEN(LINE_LEN)) u_enh_r (
+        .clk(pl_clk), .rst_n(rst_n),
+        .col_pixels(col_pix_r), .col_valid(col_valid_r),
+        .col_x(col_x_r), .col_y(col_y_r), .col_sof(col_sof_r), .centre_pix(centre_r),
+        .lut_wr_data(sy_lut_wd), .lut_wr_addr(sy_lut_wa), .lut_wr_en(sy_lut_we),
+        .m_enh_data(enh_R), .m_enh_valid(enh_valid_r),
+        .m_enh_x(enh_x_r), .m_enh_y(enh_y_r), .m_enh_sof(enh_sof_r)
+    );
+    local_detail_enhance_11x11 #(.PIXEL_W(PIXEL_W), .WIN_SIZE(11), .LINE_LEN(LINE_LEN)) u_enh_g (
+        .clk(pl_clk), .rst_n(rst_n),
+        .col_pixels(col_pix_g), .col_valid(col_valid_g),
+        .col_x(col_x_g), .col_y(col_y_g), .col_sof(col_sof_g), .centre_pix(centre_g),
+        .lut_wr_data(sy_lut_wd), .lut_wr_addr(sy_lut_wa), .lut_wr_en(sy_lut_we),
+        .m_enh_data(enh_G), .m_enh_valid(enh_valid_g),
+        .m_enh_x(enh_x_g), .m_enh_y(enh_y_g), .m_enh_sof(enh_sof_g)
+    );
+    local_detail_enhance_11x11 #(.PIXEL_W(PIXEL_W), .WIN_SIZE(11), .LINE_LEN(LINE_LEN)) u_enh_b (
+        .clk(pl_clk), .rst_n(rst_n),
+        .col_pixels(col_pix_b), .col_valid(col_valid_b),
+        .col_x(col_x_b), .col_y(col_y_b), .col_sof(col_sof_b), .centre_pix(centre_b),
+        .lut_wr_data(sy_lut_wd), .lut_wr_addr(sy_lut_wa), .lut_wr_en(sy_lut_we),
+        .m_enh_data(enh_B), .m_enh_valid(enh_valid_b),
+        .m_enh_x(enh_x_b), .m_enh_y(enh_y_b), .m_enh_sof(enh_sof_b)
     );
 
-    // =========================================================================
-    // I. 双边滤波 5x5
-    // =========================================================================
+    wire enh_hsync_r = enh_valid_r & (enh_x_r == 11'd0);
+    wire enh_hsync_g = enh_valid_g & (enh_x_g == 11'd0);
+    wire enh_hsync_b = enh_valid_b & (enh_x_b == 11'd0);
+    wire enh_sof_in_r = enh_sof_r | (enh_valid_r & (enh_x_r == 11'd0) & (enh_y_r == 11'd0));
+    wire enh_sof_in_g = enh_sof_g | (enh_valid_g & (enh_x_g == 11'd0) & (enh_y_g == 11'd0));
+    wire enh_sof_in_b = enh_sof_b | (enh_valid_b & (enh_x_b == 11'd0) & (enh_y_b == 11'd0));
+
+    bilateral_filter #(.PIXEL_W(PIXEL_W), .LINE_LEN(LINE_LEN), .WIN_HALF(2), .NORM_SHIFT(8)) u_bilat_r (
+        .clk(pl_clk), .rst_n(rst_n),
+        .s_pix_data(enh_R), .s_pix_valid(enh_valid_r),
+        .s_pix_sof(enh_sof_in_r), .s_pix_hsync(enh_hsync_r),
+        .lut_wr_addr(8'b0), .lut_wr_data(8'b0), .lut_wr_en(1'b0),
+        .m_pix_data(bilat_R), .m_pix_valid(bilat_valid_r),
+        .m_pix_sof(bilat_sof_r), .m_pix_hsync()
+    );
+    bilateral_filter #(.PIXEL_W(PIXEL_W), .LINE_LEN(LINE_LEN), .WIN_HALF(2), .NORM_SHIFT(8)) u_bilat_g (
+        .clk(pl_clk), .rst_n(rst_n),
+        .s_pix_data(enh_G), .s_pix_valid(enh_valid_g),
+        .s_pix_sof(enh_sof_in_g), .s_pix_hsync(enh_hsync_g),
+        .lut_wr_addr(8'b0), .lut_wr_data(8'b0), .lut_wr_en(1'b0),
+        .m_pix_data(bilat_G), .m_pix_valid(bilat_valid_g),
+        .m_pix_sof(bilat_sof_g), .m_pix_hsync(bilat_hsync_g)
+    );
+    bilateral_filter #(.PIXEL_W(PIXEL_W), .LINE_LEN(LINE_LEN), .WIN_HALF(2), .NORM_SHIFT(8)) u_bilat_b (
+        .clk(pl_clk), .rst_n(rst_n),
+        .s_pix_data(enh_B), .s_pix_valid(enh_valid_b),
+        .s_pix_sof(enh_sof_in_b), .s_pix_hsync(enh_hsync_b),
+        .lut_wr_addr(8'b0), .lut_wr_data(8'b0), .lut_wr_en(1'b0),
+        .m_pix_data(bilat_B), .m_pix_valid(bilat_valid_b),
+        .m_pix_sof(bilat_sof_b), .m_pix_hsync()
+    );
+
+    // Align on G channel timing; SOF: sticky from bilat + pixel-counter fallback
+    wire               bilat_valid = bilat_valid_g;
     wire [PIXEL_W-1:0] bilat_Y;
-    wire               bilat_valid;
-    wire               bilat_sof;
+    reg  [20:0]        bilat_frame_pix_r;
+    wire               bilat_sof_cnt = bilat_valid && (bilat_frame_pix_r == 21'd0);
+    wire               bilat_sof     = bilat_sof_g | bilat_sof_cnt;
 
-    bilateral_filter #(
-        .PIXEL_W    (PIXEL_W),
-        .LINE_LEN   (LINE_LEN),
-        .WIN_HALF   (2),
-        .NORM_SHIFT (8)
-    ) u_bilateral (
-        .clk         (pl_clk),
-        .rst_n       (rst_n),
-        .s_pix_data  (enh_Y),
-        .s_pix_valid (enh_valid),
-        .lut_wr_addr (8'b0),
-        .lut_wr_data (8'b0),
-        .lut_wr_en   (1'b0),
-        .m_pix_data  (bilat_Y),
-        .m_pix_valid (bilat_valid)
-    );
+    always @(posedge pl_clk or negedge rst_n) begin
+        if (!rst_n)
+            bilat_frame_pix_r <= 21'd0;
+        else if (bilat_valid) begin
+            if (bilat_frame_pix_r == ETH_FRAME_PIX[20:0] - 1)
+                bilat_frame_pix_r <= 21'd0;
+            else
+                bilat_frame_pix_r <= bilat_frame_pix_r + 21'd1;
+        end
+    end
+
+    // BT.601 Y from filtered RGB (same cycle as bilat_valid)
+    wire [22:0] bilat_y_sum = bilat_R * 23'd306 + bilat_G * 23'd601 + bilat_B * 23'd117;
+    assign bilat_Y = bilat_y_sum[22:10];
 
     // =========================================================================
-    // J. CLAHE (with ingress FIFO + backpressure)
+    // J. CLAHE (Y from filtered RGB) + HDMI path
     // =========================================================================
     localparam CLAHE_FIFO_DEPTH = 2048;
     localparam CLAHE_FIFO_AW    = $clog2(CLAHE_FIFO_DEPTH);
@@ -619,19 +661,6 @@ module imgproc_top_ov5640 #(
     wire               clahe_fifo_empty;
     wire [PIXEL_W-1:0] clahe_s_pix_data;
     wire               clahe_s_pix_valid;
-
-    assign bilat_sof = bilat_valid && (bilat_frame_pix_r == 21'd0);
-
-    always @(posedge pl_clk or negedge rst_n) begin
-        if (!rst_n)
-            bilat_frame_pix_r <= 21'd0;
-        else if (bilat_valid) begin
-            if (bilat_frame_pix_r == ETH_FRAME_PIX[20:0] - 1)
-                bilat_frame_pix_r <= 21'd0;
-            else
-                bilat_frame_pix_r <= bilat_frame_pix_r + 21'd1;
-        end
-    end
 
     assign clahe_fifo_wdata = {bilat_sof, bilat_Y};
     assign clahe_fifo_wr   = bilat_valid && !clahe_fifo_full;
@@ -687,7 +716,7 @@ module imgproc_top_ov5640 #(
         .m_pix_sof    (clahe_sof)
     );
 
-    // K. DDR 乒乓 + AXI4 HP1
+    // K. DDR + AXI4 HP1
     // =========================================================================
     wire [PIXEL_W-1:0] disp_pix;
     wire               disp_pix_valid;
@@ -707,7 +736,6 @@ module imgproc_top_ov5640 #(
         .buf_base_addr (r_ddr3_base),
         .m_pix_data    (disp_pix),
         .m_pix_valid   (disp_pix_valid),
-        // AXI4 HP1 写通道
         .m_axi_awaddr  (m_axi_hp1_awaddr),
         .m_axi_awlen   (m_axi_hp1_awlen),
         .m_axi_awsize  (m_axi_hp1_awsize),
@@ -722,7 +750,6 @@ module imgproc_top_ov5640 #(
         .m_axi_bresp   (m_axi_hp1_bresp),
         .m_axi_bvalid  (m_axi_hp1_bvalid),
         .m_axi_bready  (m_axi_hp1_bready),
-        // AXI4 HP1 读通道
         .m_axi_araddr  (m_axi_hp1_araddr),
         .m_axi_arlen   (m_axi_hp1_arlen),
         .m_axi_arsize  (m_axi_hp1_arsize),
@@ -741,7 +768,7 @@ module imgproc_top_ov5640 #(
     );
 
     // =========================================================================
-    // K2. 以太网帧发送：CLAHE 输出 -> AXI DMA
+    // K2. ETH from bilat RGB (default) / CLAHE gray as RGBX fallback
     // =========================================================================
 
     always @(posedge pl_clk or negedge rst_n) begin
@@ -756,13 +783,11 @@ module imgproc_top_ov5640 #(
         end
     end
 
-    wire [PIXEL_W-1:0] eth_src_data  = eth_from_clahe ? clahe_Y : bilat_Y;
-    wire               eth_src_valid = eth_from_clahe ? clahe_valid : bilat_valid;
-    wire               eth_src_sof   = eth_from_clahe ? clahe_sof : bilat_sof;
-
-    wire [PIXEL_W-1:0] eth_pix_data  = eth_src_data;
-    wire               eth_pix_valid = eth_src_valid;
-    wire               eth_pix_sof   = eth_src_sof;
+    wire [PIXEL_W-1:0] eth_r = eth_from_clahe ? clahe_Y : bilat_R;
+    wire [PIXEL_W-1:0] eth_g = eth_from_clahe ? clahe_Y : bilat_G;
+    wire [PIXEL_W-1:0] eth_b = eth_from_clahe ? clahe_Y : bilat_B;
+    wire               eth_pix_valid = eth_from_clahe ? clahe_valid : bilat_valid;
+    wire               eth_pix_sof   = eth_from_clahe ? clahe_sof   : bilat_sof;
 
     (* mark_debug = "true" *) wire dbg_eth_valid = eth_pix_valid;
     (* mark_debug = "true" *) wire dbg_axis_tvalid = eth_axis_tvalid;
@@ -773,26 +798,28 @@ module imgproc_top_ov5640 #(
         .PIXEL_W  (PIXEL_W),
         .IMG_W    (IMG_W),
         .IMG_H    (IMG_H),
-        .AXIS_DW  (8)
+        .AXIS_DW  (32),
+        .FORMAT   (8'd1)
     ) u_frame_eth (
         .clk            (pl_clk),
         .rst_n          (rst_n),
-        .s_pix_data     (eth_pix_data),
+        .s_pix_r        (eth_r),
+        .s_pix_g        (eth_g),
+        .s_pix_b        (eth_b),
         .s_pix_valid    (eth_pix_valid),
         .s_pix_sof      (eth_pix_sof),
-        // AXI-Stream → BD 内 AXI DMA
         .m_axis_tdata   (eth_axis_tdata),
         .m_axis_tvalid  (eth_axis_tvalid),
         .m_axis_tready  (eth_axis_tready),
         .m_axis_tlast   (eth_axis_tlast),
-        // 抽帧：r_ctrl[7:4] 控制发送帧率（默认每2帧发1帧）
+        .m_axis_tkeep   (eth_axis_tkeep),
         .frame_skip     (r_ctrl[7:4]),
         .tx_frame_cnt   (eth_tx_frame_cnt)
     );
 
 
     // =========================================================================
-    // L. 显示控制：AXI4 HP0 写 DDR + VGA 时序
+    // L. ?????AXI4 HP0 ??DDR + VGA ??
     // =========================================================================
     zynq_display_ctrl #(
         .PIXEL_W   (PIXEL_W),
@@ -804,7 +831,7 @@ module imgproc_top_ov5640 #(
         .FB_PIX_W  (32)
     ) u_display (
         .clk            (pl_clk),
-        .pclk           (pclk),     // 148.5 MHz MMCM 像素时钟
+        .pclk           (pclk),     // 148.5 MHz MMCM ????
         .pclk_rst_n     (pclk_resetn),
         .rst_n          (rst_n),
         .s_pix_data     (disp_pix),
@@ -813,7 +840,7 @@ module imgproc_top_ov5640 #(
         .fb_addr_b      (r_fb_addr_b),
         .cfg_start      (cfg_start),
         .res_sel        (res_sel),
-        // AXI4 HP0 写通道
+        // AXI4 HP0 ???
         .m_axi_awaddr   (m_axi_hp0_awaddr),
         .m_axi_awlen    (m_axi_hp0_awlen),
         .m_axi_awsize   (m_axi_hp0_awsize),
@@ -828,7 +855,7 @@ module imgproc_top_ov5640 #(
         .m_axi_bresp    (m_axi_hp0_bresp),
         .m_axi_bvalid   (m_axi_hp0_bvalid),
         .m_axi_bready   (m_axi_hp0_bready),
-        // VGA 中间信号（再经 pclk 寄存送 HDMI）
+        // VGA ????????pclk ????HDMI??
         .vga_hsync      (vga_hsync_i),
         .vga_vsync      (vga_vsync_i),
         .vga_de         (vga_de_i),
@@ -842,7 +869,7 @@ module imgproc_top_ov5640 #(
     wire [31:0] raw_pixel_cnt_w = raw_pixel_cnt_r;
 
     // =========================================================================
-    // M. 状态回读寄存器
+    // M. ???????
     // =========================================================================
     assign cfg_status = {
         fifo_ovf_cnt_r,
@@ -850,18 +877,18 @@ module imgproc_top_ov5640 #(
         raw_pixel_cnt_w,
         mipi_pix_cnt_w,
         mipi_beat_cnt_w,
-        {16'd0, eth_tx_frame_cnt, buf_sel_w},
+        {16'd0, eth_tx_frame_cnt},
         dead_cnt_w_int
     };
 
     // =========================================================================
-    // N. HDMI：灰度 Y[12:5] -> RGB24 -> ADV7511
-    //    ADV7511：24-bit 并行 RGB + 同步
-    //    灰度图: R=G=B=luma8=vga_pixel_i[12:5]
-    //    pclk 直连 hdmi_clk；ADV7511 边沿采样
+    // N. HDMI????Y[12:5] -> RGB24 -> ADV7511
+    //    ADV7511??4-bit ?? RGB + ??
+    //    ???? R=G=B=luma8=vga_pixel_i[12:5]
+    //    pclk ?? hdmi_clk?ADV7511 ????
     // =========================================================================
-    // pclk 域输出寄存：满足 IOB/源同步时序
-    // 可接受 1 拍延迟：同步信号与数据同拍寄存
+    // pclk ???????? IOB/??????
+    // ????1 ????????????????
     wire [7:0] hdmi_luma_w = vga_pixel_i[PIXEL_W-1 -: 8];
 
     reg [23:0] hdmi_d_r;
@@ -888,7 +915,7 @@ module imgproc_top_ov5640 #(
     assign hdmi_de    = hdmi_de_r;
 
     // =========================================================================
-    // 观测：frame_done_irq 由 u_display -> BD -> PS GIC
+    // ???frame_done_irq ??u_display -> BD -> PS GIC
     // =========================================================================
     //assign buf_sel_out         = buf_sel_w;
     //assign dead_pixel_cnt_out  = dead_cnt_w_int;

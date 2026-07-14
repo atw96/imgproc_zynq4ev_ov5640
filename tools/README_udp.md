@@ -1,50 +1,50 @@
-# UDP 图像接收器使用说明
+# UDP Image Receiver Usage
 
-此目录包含接收板端 `eth_stream.c` UDP 分片图像流的工具。
+This directory contains tools for receiving the UDP-fragmented image stream from the board-side `eth_stream.c`.
 
-文件：
+Files:
 
-- `udp_img_viewer.py`：主接收与显示脚本（依赖 `numpy` + `opencv-python`）。
-- `start_udp_receiver.ps1`：Windows 启动脚本（临时防火墙规则 + Python）。
-- `run_full_flow.ps1`：JTAG 上板 + 启动接收器一键流程。
-- `requirements.txt`：Python 依赖。
+- `udp_img_viewer.py` — Main receiver + display script (requires `numpy` + `opencv-python`).
+- `start_udp_receiver.ps1` — Windows launcher (adds temporary firewall rule + Python).
+- `run_full_flow.ps1` — One-click JTAG program + receiver start.
+- `requirements.txt` — Python dependencies.
 
-**默认 UDP 端口：5002**（避开 Windows 上 `nidmsrv.exe` 常占用的 5000）。
+**Default UDP port: `<port>`** (chosen to avoid common conflicts on Windows).
 
-## 快速开始
+## Quick start
 
-1. 安装依赖：
+1. Install dependencies:
 
 ```powershell
 python -m pip install -r tools/requirements.txt
 ```
 
-2. 仅接收图像：
+2. Receive only:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/start_udp_receiver.ps1
 ```
 
-或：
+Or:
 
 ```bash
-python tools/udp_img_viewer.py --bind 0.0.0.0 --port 5002 --width 1920 --height 1080
+python tools/udp_img_viewer.py --bind 0.0.0.0 --port <port> --width 1920 --height 1080
 ```
 
-3. 上板 + 接收（Vivado 已 Program bit 时加 `-ElfOnly`）：
+3. Program board + receive (add `-ElfOnly` if Vivado already programmed bit):
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/run_full_flow.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File tools/run_full_flow.ps1 -ElfOnly
 ```
 
-## 网络
+## Network
 
-- 板端目标 IP：`<pc_ip>`（`eth_stream.c` 中 `ETH_DST_IP_STR`）
-- 板端目标端口：**`<port>`**
-- 板子 IP 一般为 `<board_ip>`，可用 `ping <board_ip>` 确认
+- Board target IP: `<pc_ip>` (defined as `ETH_DST_IP_STR` in `eth_stream.c`)
+- Board target port: **<port>**
+- Board IP is typically `<board_ip>`, confirm with `ping <board_ip>`
 
-## 常见问题
+## Troubleshooting
 
-- `WinError 10048`：端口被占用，换 `--port` 或改板端 `ETH_DST_PORT`。
-- `WinError 10013`：用 `--bind 0.0.0.0` 或以管理员运行 `start_udp_receiver.ps1`。
+- `WinError 10048`: Port in use — change `--port` or update `ETH_DST_PORT` in firmware.
+- `WinError 10013`: Use `--bind 0.0.0.0` or run `start_udp_receiver.ps1` as Administrator.

@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env python3
+#!/usr/bin/env python3
 """Preflight checks for imgproc_mpsoc JTAG / BSP / build environment."""
 from __future__ import annotations
 

@@ -68,6 +68,7 @@
 
 #define ARP_TABLE_SIZE 10
 #define ARP_QUEUEING 1
+#define ETHARP_SUPPORT_STATIC_ENTRIES 1
 
 #define ICMP_TTL 255
 

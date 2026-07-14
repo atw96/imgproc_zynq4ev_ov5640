@@ -1,60 +1,60 @@
-# JTAG 烧录说明（AXU4EV + imgproc_baremetal）
+# JTAG Programming Guide (AXU4EV + imgproc_baremetal)
 
-## 参考工程（勿混用）
+## Reference projects (do not cross-mix)
 
-| 路径 | 用途 |
-|------|------|
-| `doc/factory_vivado/board_test` | 工厂 DEMO，**仅对照 DDR / psu_init 流程** |
-| `doc/.../psu_init.tcl` (~894KB) | 含完整 DDR 初始化；**无 PS GEM3**，不能整文件替换本工程 |
-| 本工程 `vitis_project/.../psu_init.tcl` (~659KB) | 含 **GEM3/ENET3**（与 `files/create_bd_ov5640.tcl` 一致） |
+| Path | Purpose |
+|------|---------|
+| `doc/factory_vivado/board_test` | Factory demo — DDR / psu_init reference **only** |
+| `doc/.../psu_init.tcl` (~894KB) | Full DDR init; **no PS GEM3** — do not replace this project's file |
+| This project `vitis_project/.../psu_init.tcl` (~659KB) | Includes **GEM3/ENET3** (matches `files/create_bd_ov5640.tcl`) |
 
-`apply_alinx_ddr` 曾失败导致 psu_init 未完整重新生成。若 XSCT `psu_init` 报错或卡住，先运行：
+`apply_alinx_ddr` once failed and left psu_init partially regenerated. If XSCT `psu_init` errors or hangs, run:
 
 ```bat
 vivado_proj\regen_psu_init_and_sync.bat
 ```
 
-## 推荐流程（Vivado 能连 JTAG 时）
+## Recommended flows
 
-### A. 你已在 Vivado 里 Program Device（DONE=HIGH）
+### A. Vivado already programmed device (DONE=HIGH)
 
-1. **关闭** Vivado Hardware Manager（释放 JTAG）
-2. 不要运行会 `taskkill hw_server` 的脚本
-3. 执行：
+1. **Close** Vivado Hardware Manager (releases JTAG).
+2. Do NOT run scripts that `taskkill hw_server`.
+3. Execute:
 
 ```bat
 cd vitis_project
 deploy.bat program-elf
 ```
 
-内部使用 `program_post_vivado.tcl`：`stop A53` → `psu_init` → `dow` → `con`（与 2026_5_28 手动 XSCT 一致）。
+Internally uses `program_post_vivado.tcl`: `stop A53` → `psu_init` → `dow` → `con`.
 
-### B. 全自动（batch Vivado + XSCT）
+### B. Fully automatic (batch Vivado + XSCT)
 
 ```bat
 cd vitis_project
 deploy.bat program-auto
 ```
 
-### C. 仅 XSCT（无 Vivado GUI）
+### C. XSCT only (no Vivado GUI)
 
-关闭 Vivado 后：
+Close Vivado, then:
 
 ```bat
 deploy.bat program
 ```
 
-使用 `program_jtag.tcl`（无 `rst-system`，先 `psu_init` 再 `fpga`）。
+Uses `program_jtag.tcl` (no `rst-system`; `psu_init` before `fpga`).
 
-## 禁止
+## Prohibited
 
-- **不要**用 `factory` 的 `psu_init.tcl` 覆盖本工程（会丢掉 GEM3）
-- **不要**反复 `rst -system` + 多轮 `psu_init`（易 `Channel closed` / 卡 `0xFFCA5000`）
-- **不要**在 Vivado Program 后立刻 `_kill_hw_server` 再 XSCT
+- **Do not** overwrite this project's `psu_init.tcl` with the factory version (loses GEM3).
+- **Do not** repeatedly `rst -system` + multiple `psu_init` rounds (prone to `Channel closed` / hang at `0xFFCA5000`).
+- **Do not** `_kill_hw_server` immediately after Vivado Program then switch to XSCT.
 
-## 串口
+## Serial port
 
-`<COMx>`，115200，期望：
+`<COMx>`, 115200. Expected output:
 
 ```
 === imgproc baremetal: AXI IIC + OV5640 ===

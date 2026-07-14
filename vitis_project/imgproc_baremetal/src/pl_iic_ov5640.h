@@ -10,6 +10,7 @@ extern "C" {
 
 int PlIic_Init(void);
 int Ov5640_PowerOn(void);
+int Ov5640_PowerOn_AltPolarity(void);
 void Ov5640_I2cBusScan(void);
 int Ov5640_WriteReg(u16 reg_addr, u8 data);
 int Ov5640_ReadReg(u16 reg_addr, u8 *data);

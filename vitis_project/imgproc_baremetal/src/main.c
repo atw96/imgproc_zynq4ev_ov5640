@@ -17,20 +17,37 @@ int main(void)
 		xil_printf("PlIic_Init failed.\r\n");
 		return -1;
 	}
-	xil_printf("[MAIN] step: Ov5640_PowerOn...\r\n");
-	if (Ov5640_PowerOn() != XST_SUCCESS) {
-		xil_printf("Ov5640_PowerOn failed.\r\n");
-		return -1;
-	}
-	xil_printf("[MAIN] step: Ov5640_Probe...\r\n");
-	if (Ov5640_Probe() == XST_SUCCESS) {
-		xil_printf("[MAIN] step: Ov5640_SensorInit (1080p table)...\r\n");
-		if (Ov5640_SensorInit() == XST_SUCCESS)
-			cam_ok = 1;
-		else
-			xil_printf("[MAIN] WARN: SensorInit failed, PL test_pat still runs\r\n");
-	} else {
-		xil_printf("[MAIN] WARN: OV5640 I2C/ID failed, PL test_pat still runs\r\n");
+	/* AN5641 FPC 接触偶发 NACK：PowerOn+Probe 重试，不改 CAM_GPIO 极性 */
+	{
+		int attempt;
+
+		for (attempt = 1; attempt <= 3; attempt++) {
+			xil_printf("[MAIN] step: Ov5640_PowerOn (try %d/3)...\r\n",
+				   attempt);
+			if (attempt == 3) {
+				if (Ov5640_PowerOn_AltPolarity() != XST_SUCCESS) {
+					xil_printf("Ov5640_PowerOn_AltPolarity failed.\r\n");
+					return -1;
+				}
+			} else if (Ov5640_PowerOn() != XST_SUCCESS) {
+				xil_printf("Ov5640_PowerOn failed.\r\n");
+				return -1;
+			}
+			sleep(1);
+			xil_printf("[MAIN] step: Ov5640_Probe (try %d/3)...\r\n",
+				   attempt);
+			if (Ov5640_Probe() == XST_SUCCESS) {
+				xil_printf("[MAIN] step: Ov5640_SensorInit (1080p)...\r\n");
+				if (Ov5640_SensorInit() == XST_SUCCESS)
+					cam_ok = 1;
+				else
+					xil_printf("[MAIN] WARN: SensorInit failed\r\n");
+				break;
+			}
+			xil_printf("[MAIN] WARN: I2C NACK try %d/3\r\n", attempt);
+		}
+		if (!cam_ok)
+			xil_printf("[MAIN] WARN: OV5640 I2C/ID failed after retries\r\n");
 	}
 	(void)PlIsp_Init();
 	PlIsp_DumpStatus();

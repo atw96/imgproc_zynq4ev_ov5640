@@ -1,7 +1,7 @@
 //Copyright 1986-2020 Xilinx, Inc. All Rights Reserved.
 //--------------------------------------------------------------------------------
 //Tool Version: Vivado v.2020.1 (win64) Build 2902540 Wed May 27 19:54:49 MDT 2020
-//Date        : Mon Jul  6 18:13:20 2026
+//Date        : Mon Jul 13 21:41:25 2026
 //Host        : DESKTOP-TEFC33U running 64-bit major release  (build 9200)
 //Command     : generate_target zynq_imgproc_bd_wrapper.bd
 //Design      : zynq_imgproc_bd_wrapper
@@ -109,8 +109,8 @@ module zynq_imgproc_bd_wrapper
     pclk_resetn,
     pl_clk,
     rst_n);
-  input [7:0]ETH_AXIS_S2MM_tdata;
-  input [0:0]ETH_AXIS_S2MM_tkeep;
+  input [31:0]ETH_AXIS_S2MM_tdata;
+  input [3:0]ETH_AXIS_S2MM_tkeep;
   input ETH_AXIS_S2MM_tlast;
   output ETH_AXIS_S2MM_tready;
   input ETH_AXIS_S2MM_tvalid;
@@ -209,8 +209,8 @@ module zynq_imgproc_bd_wrapper
   output pl_clk;
   output [0:0]rst_n;
 
-  wire [7:0]ETH_AXIS_S2MM_tdata;
-  wire [0:0]ETH_AXIS_S2MM_tkeep;
+  wire [31:0]ETH_AXIS_S2MM_tdata;
+  wire [3:0]ETH_AXIS_S2MM_tkeep;
   wire ETH_AXIS_S2MM_tlast;
   wire ETH_AXIS_S2MM_tready;
   wire ETH_AXIS_S2MM_tvalid;

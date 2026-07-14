@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$Port = "COM3",
     [int]$Baud = 115200,
     [int]$Seconds = 120,

@@ -84,10 +84,10 @@ Sensor → Bayer demosaic → WB → Gamma → YCbCr → Wiener 11×11 → CLAHE
 |---------|------------|
 | No image on local PC | Board not actively streaming at test time (0 UDP packets in 10 s on port 5002) |
 | `recv_display.py` showed nothing | Script ran in headless / remote SSH session — `cv2.imshow` needs local Windows desktop |
-| Port `<port>` bind conflict | Stale background `python.exe` (Session 0) held port `<port>` without displaying a window |
+| Port 5002 bind conflict | Stale background `python.exe` (Session 0) held port 5002 without displaying a window |
 | Intermittent success | Historical logs show `sent frame` on UART, but `err ≈ ok` due to `bad frame header` (~50% drop) |
 
-**PC network:** host PC NIC configured as `<pc_ip>/24`; board target `<board_ip>`; UDP port `<port>`.
+**PC network:** host PC NIC configured as `10.0.0.100/24`; board target `10.0.0.10`; UDP port `5002`.
 
 ---
 
@@ -118,13 +118,9 @@ Sensor → Bayer demosaic → WB → Gamma → YCbCr → Wiener 11×11 → CLAHE
 - Fix frame sync / SOF alignment to eliminate `bad frame header`  
 - Optional: remove bilateral stage to match intended ISP chain  
 
-### Artifact note
-
-| Artifact | Content |
-|----------|---------|
-| `DEBUG_HANDOFF.md` | Session handoff (desensitized for public repo) |
-
 ---
+
+## ISP Architecture Clarification
 
 The pipeline is **serial**, not two parallel ISPs. The perceived "split" comes from **output muxing**:
 
@@ -143,8 +139,8 @@ Current Bit A compiles ETH to **bilateral** (`ETH_USE_CLAHE=0`), not CLAHE.
 
 1. **Re-burn Bit A** (`fix_dma_length_and_build.tcl` → sync → build → program)  
 2. **Confirm UART** shows continuous `[ETH] sent frame N` (not only `bad frame header`)  
-3. **On local Windows desktop** (not remote SSH): configure host PC NIC for the board subnet, then run `recv_display.py`  
-4. **Quick UDP check:** `recv_display.py` should report packets within 10 s while board is streaming  
+3. **On local Windows desktop** (not remote SSH): run `setup_ps_eth_motorcomm.ps1`, then `recv_display.py`  
+4. **Quick UDP check:** `udp_test.py` should report packets within 10 s while board is streaming  
 5. **RTL:** set `ETH_USE_CLAHE=1`, remove bilateral bypass mux; resynthesize  
 6. **Debug frame header:** align `clahe_sof` / `frame_eth_tx` SOF with DMA TLAST boundaries  
 

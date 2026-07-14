@@ -130,16 +130,17 @@ add_cells_to_pblock [get_pblocks pb_pipeline] \
     [get_cells -hierarchical -filter {NAME =~ "*u_linebuf*" ||
                                       NAME =~ "*u_preproc*"}]
 resize_pblock [get_pblocks pb_pipeline] \
-    -add {CLOCKREGION_X0Y0:CLOCKREGION_X0Y2}
+    -add {CLOCKREGION_X0Y0:CLOCKREGION_X0Y3}
 
 create_pblock pb_filter_disp
 add_cells_to_pblock [get_pblocks pb_filter_disp] \
-    [get_cells -hierarchical -filter {NAME =~ "*u_bilateral*" ||
+    [get_cells -hierarchical -filter {NAME =~ "*u_bilat*" ||
+                                      NAME =~ "*u_enh*" ||
                                       NAME =~ "*u_clahe*"     ||
                                       NAME =~ "*u_display*"   ||
                                       NAME =~ "*u_ddr3_buf*"}]
 resize_pblock [get_pblocks pb_filter_disp] \
-    -add {CLOCKREGION_X1Y0:CLOCKREGION_X1Y2}
+    -add {CLOCKREGION_X1Y0:CLOCKREGION_X1Y3}
 
 # HDMI 输出寄存器靠近 Bank66 / clk_wiz BUFGCE，减轻源同步输出 Setup 压力
 create_pblock pb_hdmi_out
@@ -158,9 +159,9 @@ set_property RAM_STYLE BLOCK \
 set_property DONT_TOUCH true \
     [get_cells -hierarchical -filter {NAME =~ "*u_linebuf*"}]
 set_property DONT_TOUCH true \
-    [get_cells -hierarchical -filter {NAME =~ "*u_detail_enh*"}]
+    [get_cells -hierarchical -filter {NAME =~ "*u_enh_*" || NAME =~ "*u_detail_enh*"}]
 set_property DONT_TOUCH true \
-    [get_cells -hierarchical -filter {NAME =~ "*u_bilateral*"}]
+    [get_cells -hierarchical -filter {NAME =~ "*u_bilat*" || NAME =~ "*u_bilateral*"}]
 set_property DONT_TOUCH true \
     [get_cells -hierarchical -filter {NAME =~ "*u_clahe*"}]
 set_property DONT_TOUCH true \

@@ -107,6 +107,9 @@ module local_detail_enhance_11x11 #(
     localparam ADDR_W_LB = $clog2(LINE_LEN);      // = 11
     // Total pipeline depth from col_valid input to m_enh_valid output
     localparam PIPE_DEPTH = 11;
+    // ep_valid is 11 stages from col_valid (s1..ep). shift_reg DEPTH=11 aligns
+    // dly_* with ep_valid in the output always; both then get +1 to m_enh_*.
+    // (Header "Total=11 includes output" was wrong — that would be DEPTH=10.)
 
     // =========================================================================
     // Unpack 11 pixels from the column bus
@@ -428,7 +431,7 @@ module local_detail_enhance_11x11 #(
             m_enh_valid <= ep_valid;
             m_enh_x     <= dly_x;
             m_enh_y     <= dly_y;
-            m_enh_sof   <= dly_sof && ep_valid;
+            m_enh_sof   <= dly_sof & ep_valid;
             m_enh_data  <= eyt_clamp;
         end
     end

@@ -10,14 +10,23 @@
 > - **Focus:** Ethernet + RTL demonstration (OV5640 MIPI input → ISP → DMA to PS → UDP frame streaming).
 > - **Minimal size:** Repository now contains only essential sources, Tcl config, and IP metadata for reproducible builds.
 
+## Known status
+
+- **Ethernet transport** is verified working end-to-end (PL `frame_eth_tx` → AXI DMA S2MM → PS DDR → lwIP UDP → PC receiver `recv_display.py` / `save_udp_frame.py`). UART shows continuous `sent frame N` for the configured UDP destination and the PC PNG snapshots save successfully.
+- **Bit A geometry** (synthetic test pattern path, `ETH_FORCE_RAMP=1`) has been self-checked: 12-frame cross-correlation reports `shift=0, corr=1.0`, and with firmware-side `ETH_HWRAP_ROT_PIX=449` the ramp pattern aligns. The rotation constant is Bit-A-specific and only used at bring-up.
+- **Bit B live MIPI path** (`ISP_USE_TEST_RAW=0`, `ETH_USE_CLAHE=0`, ETH tap = bilateral output) streams to PC but a **periodic 4-pixel vertical stripe** artifact remains on the captured frames; back-pressure counters (`skid_ovf`) can saturate without the DDR3-with-pause buffer path. Root cause is being tracked as a `fifo_sync` FWFT read-side replay issue (N11 series) — RTL fix committed but awaiting re-synthesis / on-board verification.
+- **CLAHE output mux**: Bit A ships with `ETH_USE_CLAHE=0` (ETH taps bilateral instead of CLAHE) because of a now-fixed `clahe_engine` MAP-phase replay defect; HDMI still uses the CLAHE output.
+
 ## Features
 
 - **MIPI CSI-2 capture**: RAW10 from OV5640 via MIPI CSI-2 RX Subsystem.
-- **ISP preprocessing**: defective-pixel handling, black level, white balance, demosaic, gamma (see `img_preprocessor.v`).
-- **Enhancement**: 11×11 local detail enhancement, 5×5 bilateral filter, CLAHE.
+- **ISP preprocessing**: defective-pixel handling, black level, white balance, demosaic, gamma (13-bit Q-format LUT, see `img_preprocessor.v` + `gamma22_13b.mem`).
+- **Enhancement**: 11×11 local detail enhancement, 5×5 bilateral filter, CLAHE; per-build mux via `ETH_USE_CLAHE` generic.
 - **PS DDR buffering**: AXI HP masters for display path and line-buffer path (ping-pong style usage in `ddr3_pixel_buf` / `zynq_display_ctrl` — module names retain “ddr3” legacy naming).
+- **ETH source mux**: `ETH_FROM_DDR3` (bilateral→DDR3→ETH, with back-pressure via `rd_stall←pause_src`) or default AXIS tap of ISP output.
 - **HDMI display**: 1080p60 grayscale via **ADV7511** (148.5 MHz pixel clock from BD MMCM).
 - **Ethernet frame streaming**: PL `frame_eth_tx` produces an AXI-Stream byte stream → **AXI DMA S2MM** → PS DDR; optional **LwIP RAW/UDP** path in `eth_stream.c` (requires matching BSP symbols).
+- **Optional H-wrap rotation**: `ETH_HWRAP_ROT_PIX` lets firmware rotate the first N pixels per row to compensate for a known SOF/line-start offset (Bit A baseline = 449). Off (0) by default; only enable when the bitstream has been characterised for the rotation constant.
 
 ### Data path (high level)
 
@@ -25,7 +34,8 @@
 OV5640 MIPI CSI-2 → MIPI RX Subsystem → sensor_if → img_preprocessor
     → line_buffer_ctrl → local_detail_enhance_11x11 → bilateral_filter
     → clahe_engine → ddr3_pixel_buf (AXI HP1) → zynq_display_ctrl (AXI HP0) → HDMI
-                  → frame_eth_tx (AXIS) → AXI DMA → PS DDR → (LwIP UDP) → PC
+                   └→ frame_eth_tx (AXIS) → AXI DMA → PS DDR → (LwIP UDP) → PC
+    (optional ETH_FROM_DDR3 path: bilateral → ddr3_pixel_buf → frame_eth_tx with rd_stall back-pressure)
 ```
 
 ## Requirements
@@ -81,13 +91,18 @@ imgproc_zynq4ev_ov5640/
 │   │       └── …
 │   └── imgproc_baremetal_system/    # System project wrapper
 ├── pc_viewer/
-│   └── recv_display.py              # Display received frames (PIL/OpenCV)
+│   ├── recv_display.py             # Display received frames (PIL/OpenCV)
+│   └── save_udp_frame.py           # Save a single UDP frame to PNG/raw (debugging)
 ├── tools/
-│   ├── README_udp.md                # PC-side UDP receiver usage (Chinese)
+│   ├── README_udp.md               # PC-side UDP receiver usage
 │   ├── requirements.txt             # Python dependencies
 │   ├── run_full_flow.ps1            # JTAG + receiver one-click flow
 │   ├── start_udp_receiver.ps1       # Launch PC receiver daemon
-│   └── udp_img_viewer.py            # Standalone frame viewer
+│   └── udp_img_viewer.py            # Standalone frame viewer├── vivado_proj/scripts/
+│   ├── build_bit_mipi.tcl           # Bit B (MIPI live input) build
+│   ├── build_bit_a_bilat.tcl        # Bit A (test pattern, bilateral ETH tap)
+│   ├── resume_impl_mipi.tcl         # Resume implementation from existing synth
+│   └── ...                          # Other one-shot build / debug Tcl scripts
 └── boot_images/                     # (If present) Pre-built FSBL/PMU/Bitstream/ELF images
 ```
 
@@ -224,15 +239,26 @@ Exact names may vary slightly per BD revision; always cross-check **`xparameters
 
 Defaults in `eth_stream.c` (adjust to your network):
 
-- Board / host IPs: **`<board_ip>`** → **`<pc_ip>`**
+- Board / host IPs: **`<board_ip>`** → **`<pc_ip>`** (broadcast target `<pc_subnet_broadcast>` is also supported)
 - UDP ports: destination **`<pc_udp_port>`**, source **`<src_udp_port>`**
 - **Confirm defaults** in `eth_stream.c` (board-side) and `tools/README_udp.md` (PC-side); actual values vary by build revision.
-- PL frame: **8-byte header** (`0xAA 0x55`, frame id, width, height) + **1920×1080** bytes luma
-- UDP payload: **8-byte chunk header** + up to **1392** bytes data; **1400** bytes max application data per UDP packet
+- PL frame: **12-byte header** (`0xAA 0x55`, frame id, width, height, packed as `TKEEP=0xF` to keep DMA happy without DRE) + **1920×1080** bytes luma
+- UDP payload: **8-byte chunk header** + up to **1392** bytes data; **1400** bytes max application data per UDP packet; per-chunk sleep (`ETH_DEBUG_CHUNK_SLEEP_US`) backs off to avoid host NIC drops
+- Optional firmware-level H-wrap rotation (`ETH_HWRAP_ROT_PIX`): rotate the first N pixels of every row left by N. Used to compensate an observed SOF/line-start offset on Bit A (baseline constant = 449). **Default 0** — only set if you have characterised the offset for the current bitstream.
 
 ### BSP / preprocessor guard
 
-`eth_stream.c` is wrapped in `#if defined(XPAR_XEMACPS_3_BASEADDR) && defined(XPAR_AXIDMA_0_DEVICE_ID)`. Some BSPs map **PS Ethernet 3** as **`XPAR_XEMACPS_0_*`** (single GEM instance index). If UDP streaming is skipped at compile time, align the **preprocessor condition** with your **`xparameters.h`** (or regenerate BSP after enabling GEM3 + lwIP + DMA).
+`eth_stream.c` is wrapped in `#if defined(XPAR_XEMACPS_0_BASEADDR) && defined(XPAR_AXIDMA_0_DEVICE_ID)` (the active build maps PS Ethernet as `XPAR_XEMACPS_0_*`). Some BSPs map **PS Ethernet 3** as **`XPAR_XEMACPS_3_BASEADDR`** (multi-GEM instance index). If UDP streaming is skipped at compile time, align the **preprocessor condition** with your **`xparameters.h`** (or regenerate BSP after enabling GEM3 + lwIP + DMA).
+
+### Preflight / deploy helpers
+
+```bat
+cd vitis_project
+py -3 preflight_debug.py --fix   # sanity-check serial port / hw_server / bit hash
+deploy.bat <subcommand>          # see "Deploy subcommands" above
+```
+
+`preflight_debug.py` reports whether the JTAG `hw_server` is listening, whether the expected COM port is present, and whether the deployed `hw/*.bit` SHA matches the freshly synthesised `impl_1/*.bit` — useful before running `deploy.bat program`.
 
 ## Board bring-up checklist
 

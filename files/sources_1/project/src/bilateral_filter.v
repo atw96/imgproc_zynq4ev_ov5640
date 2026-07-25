@@ -35,6 +35,7 @@ module bilateral_filter #(
 );
 
     localparam ADDR_W = $clog2(LINE_LEN);
+    localparam [ADDR_W-1:0] LINE_END = LINE_LEN - 1;
 
     // =========================================================================
     // Stage 1: 5-row line buffer ring
@@ -47,8 +48,13 @@ module bilateral_filter #(
         if (!rst_n) begin
             wr_row  <= 4'd0;
             wr_col  <= {ADDR_W{1'b0}};
+        end else if (s_pix_valid && s_pix_sof) begin
+            // Frame boundary: write the SOF pixel at column 0, then continue
+            // with column 1 on the next valid beat.
+            wr_row  <= 4'd0;
+            wr_col  <= {{(ADDR_W-1){1'b0}}, 1'b1};
         end else if (s_pix_valid) begin
-            if (wr_col == LINE_LEN[ADDR_W-1:0] - 1) begin
+            if (wr_col == LINE_END) begin
                 wr_col  <= {ADDR_W{1'b0}};
                 wr_row  <= (wr_row == 4'd4) ? 4'd0 : wr_row + 1;
             end else begin
@@ -68,14 +74,22 @@ module bilateral_filter #(
             rd_active   <= 1'b0;
             rd_head     <= 4'd0;
             rd_col      <= {ADDR_W{1'b0}};
+        end else if (s_pix_valid && s_pix_sof) begin
+            // Keep read warm across frames (n7k pause made shift worse: 696→1354).
+            // Force first BRAM read at col0 via ra_r; set rd_col=1 so the next
+            // beat is col1 (rd_col=0 caused col0 to be read twice).
+            rows_filled <= 4'd5;
+            rd_active   <= 1'b1;
+            rd_head     <= 4'd0;
+            rd_col      <= {{(ADDR_W-1){1'b0}}, 1'b1};
         end else begin
-            if (s_pix_valid && wr_col == LINE_LEN[ADDR_W-1:0] - 1) begin
+            if (s_pix_valid && wr_col == LINE_END) begin
                 if (rows_filled < 4'd5) rows_filled <= rows_filled + 1;
             end
             if (rows_filled >= 4'd5 && !rd_active)
                 rd_active <= 1'b1;
             if (rd_active && s_pix_valid) begin
-                if (rd_col == LINE_LEN[ADDR_W-1:0] - 1) begin
+                if (rd_col == LINE_END) begin
                     rd_col  <= {ADDR_W{1'b0}};
                     rd_head <= (rd_head == 4'd4) ? 4'd0 : rd_head + 1;
                 end else begin
@@ -91,14 +105,14 @@ module bilateral_filter #(
     reg [3:0]         wr_row_r;
     reg               re_r;
     reg               sof_r, hsync_r;
-    reg               sof_pend;
 
     always @(posedge clk) begin
-        wa_r     <= wr_col;
+        wa_r     <= (s_pix_valid && s_pix_sof) ? {ADDR_W{1'b0}} : wr_col;
         wd_r     <= s_pix_data;
         we_r     <= s_pix_valid;
-        wr_row_r <= wr_row;
-        ra_r     <= rd_col;
+        wr_row_r <= (s_pix_valid && s_pix_sof) ? 4'd0 : wr_row;
+        // Same-cycle SOF: force read address 0 (rd_col already advanced to 1)
+        ra_r     <= (s_pix_valid && s_pix_sof) ? {ADDR_W{1'b0}} : rd_col;
         re_r     <= rd_active & s_pix_valid;
         sof_r    <= s_pix_sof;
         hsync_r  <= s_pix_hsync;
@@ -218,8 +232,8 @@ module bilateral_filter #(
 
     always @(posedge clk) begin
         p2_valid     <= re_lat;
-        p2_sof       <= sof_lat;
-        p2_hsync     <= hsync_lat;
+        p2_sof       <= sof_lat & re_lat;
+        p2_hsync     <= hsync_lat & re_lat;
         p2_centre    <= centre;
         p2_row[0]    <= win_row[0];
         p2_row[1]    <= win_row[1];
@@ -317,16 +331,9 @@ module bilateral_filter #(
         recip_q16   <= recip_lut[recip_idx];
     end
 
-    // Sticky SOF: input pulse may arrive before rd_active; release on first output
-    always @(posedge clk) begin
-        if (!rst_n)
-            sof_pend <= 1'b0;
-        else if (p5_valid && sof_pend)
-            sof_pend <= 1'b0;
-        else if (s_pix_valid && s_pix_sof)
-            sof_pend <= 1'b1;
-    end
-
+    // Keep SOF in lock-step with the pixel datapath (p4_sof → p5_sof). Sticky
+    // sof_wait previously released SOF several beats after the real centre pixel
+    // and compounded H phase error once linebuf started stamping true SOF.
     wire [PIXEL_W+29:0] norm_prod  = p5_sum_wpix * recip_q16;
     wire [PIXEL_W+13:0] norm_full  = norm_prod[PIXEL_W+29:16];
     wire                use_centre = (p5_sum_w < 14'd16);
@@ -341,7 +348,7 @@ module bilateral_filter #(
             m_pix_hsync <= 1'b0;
         end else begin
             m_pix_valid <= p5_valid;
-            m_pix_sof   <= p5_valid & sof_pend;
+            m_pix_sof   <= p5_valid & p5_sof;
             m_pix_hsync <= p5_valid & p5_hsync;
             m_pix_data  <= use_centre ? p5_centre : norm_clamp;
         end

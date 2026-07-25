@@ -250,6 +250,7 @@
         <Option Name="TopModule" Val="imgproc_top_ov5640"/>
         <Generic Name="ISP_USE_TEST_RAW" Val="0"/>
         <Generic Name="ETH_USE_CLAHE" Val="0"/>
+        <Generic Name="ETH_FROM_DDR3" Val="1"/>
       </Config>
     </FileSet>
     <FileSet Name="constrs_1" Type="Constrs" RelSrcDir="$PSRCDIR/constrs_1">

@@ -56,3 +56,17 @@ if {![file exists $elf]} {
     return -code error "未生成 ELF: $elf\n$make_msg"
 }
 puts "INFO: ELF -> $elf ([file size $elf] bytes)"
+
+# sysproj/XSA 常把 hw/*.bit 盖回旧片；每次 FW 编译后强制回拷 Vivado impl_1
+set repo_root [file normalize [file join $script_dir ..]]
+set impl_bit [file join $repo_root vivado_proj imgproc_axu4evb_ov5640.runs impl_1 imgproc_top_ov5640.bit]
+set hw_bit [file join $script_dir zynq_imgproc_platform hw imgproc_top_ov5640.bit]
+set ide_bit [file join $script_dir imgproc_baremetal _ide bitstream imgproc_top_ov5640.bit]
+if {[file exists $impl_bit]} {
+    file copy -force $impl_bit $hw_bit
+    file mkdir [file dirname $ide_bit]
+    file copy -force $impl_bit $ide_bit
+    puts "INFO: re-copied impl_1 bit -> hw/ and _ide/bitstream ([file size $hw_bit] bytes)"
+} else {
+    puts "WARN: impl_1 bit missing, skipped re-copy: $impl_bit"
+}

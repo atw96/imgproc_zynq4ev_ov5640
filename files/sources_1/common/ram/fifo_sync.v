@@ -129,25 +129,29 @@ generate
         assign rd_data     = bram_rdata;
         assign rd_data_vld = bram_rdata_vld;
     end else begin : gen_fwft_mode
-        // [see README for description]
-        // [see README for description]
+        /* Show-ahead: vld tracks a held word. MUST clear when empty after pop.
+         * Old bug: `if (!empty) vld<=1` left vld stuck high after empty, so
+         * consumers (ddr3_pixel_buf unpacker) replayed the last beat forever
+         * → whole-frame 4px vertical stripe; PS DDR fills ignored. */
         reg  [DATA_W-1:0] fwft_reg;
         reg               fwft_vld;
 
         always @(posedge clk) begin
             if (!rst_n) begin
                 fwft_vld <= 1'b0;
+                fwft_reg <= {DATA_W{1'b0}};
             end else begin
-                if (bram_rdata_vld)
+                if (bram_rdata_vld) begin
                     fwft_reg <= bram_rdata;
-                // [see README for description]
-                if (!empty)
                     fwft_vld <= 1'b1;
-                else if (rd_en)
-                    fwft_vld <= 1'b0;
+                end else if (rd_en && fwft_vld) begin
+                    /* Consumed held word; only stay valid if another word remains.
+                     * count_w still includes the word being popped this cycle. */
+                    fwft_vld <= (count_w > {{ADDR_W{1'b0}}, 1'b1});
+                end
             end
         end
-        assign rd_data     = fwft_vld ? fwft_reg : bram_rdata;
+        assign rd_data     = fwft_reg;
         assign rd_data_vld = fwft_vld;
     end
 endgenerate

@@ -110,8 +110,11 @@ module ddr3_pixel_buf #(
     output reg                    m_axi_rready,
 
     // -------------------------------------------------------------------------
-    // Output pixel stream — to zynq_display_ctrl
+    // Output pixel stream — to zynq_display_ctrl / optional ETH tap
+    // rd_stall: when 1, freeze unpacker (no new m_pix_valid). Used by ETH skid
+    // backpressure (PLAN_v3 scheme A minimal) so MIPI→DDR write can continue.
     // -------------------------------------------------------------------------
+    input  wire                  rd_stall,
     output wire [PIXEL_W-1:0]    m_pix_data,
     output wire                  m_pix_valid,
 
@@ -136,47 +139,47 @@ module ddr3_pixel_buf #(
     localparam FB_BYTES     = IMG_W * IMG_H * PIX_BYTES;  // 2048*1080*2 = 4,423,680
 
     // =========================================================================
-    // Write packer: collect PIX_PER_BEAT=4 pixels into one 64-bit beat
-    // Each 13-bit pixel is zero-extended to 16 bits before packing.
+    // Write packer: 4px → 64b beat → hold reg → FIFO
     // =========================================================================
-    reg [PACK_BITS-1:0]  wr_pack_cnt;    // Counts 0..PIX_PER_BEAT-1
-    reg [AXI_DW-1:0]     wr_pack_reg;   // Accumulates 4 pixels (4×16b = 64b)
-    reg                   wr_pack_valid; // Pulses high when pack_reg is full
+    localparam WR_FIFO_D  = BURST_LEN * 2;              // 32 entries
+    localparam WR_FIFO_AW = $clog2(WR_FIFO_D);          // 5 bits
+
+    reg [PACK_BITS-1:0]  wr_pack_cnt;
+    reg [AXI_DW-1:0]     wr_pack_reg;
+    reg                   wr_hold_valid;
+    reg [AXI_DW-1:0]     wr_hold;
+    wire [WR_FIFO_AW:0]   wr_fifo_cnt;
+    wire                  wr_fifo_empty;
+    wire                  wr_fifo_rd_en;
+    wire [AXI_DW-1:0]     wr_fifo_rdata;
+    wire                  wr_fifo_rd_vld;
 
     always @(posedge clk) begin
         if (!rst_n) begin
             wr_pack_cnt   <= {PACK_BITS{1'b0}};
-            wr_pack_valid <= 1'b0;
+            wr_hold_valid <= 1'b0;
+            wr_pack_reg   <= {AXI_DW{1'b0}};
         end else begin
-            wr_pack_valid <= 1'b0;
+            if (wr_hold_valid && !wr_fifo_full)
+                wr_hold_valid <= 1'b0;
+
             if (s_pix_valid) begin
-                // Store pixel zero-extended to 16 bits in the next slot
-                wr_pack_reg[wr_pack_cnt * 16 +: 16] <= {{(16-PIXEL_W){1'b0}},
-                                                         s_pix_data};
                 if (wr_pack_cnt == PIX_PER_BEAT[PACK_BITS:0] - 1) begin
+                    /* pix3 in [63:48], pix0..2 already in wr_pack_reg[47:0] */
+                    wr_hold <= {{{(16-PIXEL_W){1'b0}}, s_pix_data}, wr_pack_reg[47:0]};
+                    wr_hold_valid <= 1'b1;
                     wr_pack_cnt   <= {PACK_BITS{1'b0}};
-                    wr_pack_valid <= 1'b1;   // 64-bit beat is ready
                 end else begin
-                    wr_pack_cnt   <= wr_pack_cnt + 1;
+                    wr_pack_reg[wr_pack_cnt * 16 +: 16] <= {{(16-PIXEL_W){1'b0}},
+                                                             s_pix_data};
+                    wr_pack_cnt <= wr_pack_cnt + 1'b1;
                 end
             end
         end
     end
 
-    // =========================================================================
-    // Write FIFO: 32-entry × 64-bit (1 RAMB36)
-    // Buffers packed beats before AXI burst transmission.
-    // =========================================================================
-    localparam WR_FIFO_D  = BURST_LEN * 2;              // 32 entries
-    localparam WR_FIFO_AW = $clog2(WR_FIFO_D);          // 5 bits
-
-    wire               wr_fifo_wr_en  = wr_pack_valid && !wr_fifo_full;
-    wire [AXI_DW-1:0]  wr_fifo_wdata  = wr_pack_reg;
-    wire               wr_fifo_rd_en;
-    wire [AXI_DW-1:0]  wr_fifo_rdata;
-    wire               wr_fifo_rd_vld;
-    wire               wr_fifo_empty;
-    wire [WR_FIFO_AW:0] wr_fifo_cnt;
+    wire               wr_fifo_wr_en  = wr_hold_valid && !wr_fifo_full;
+    wire [AXI_DW-1:0]  wr_fifo_wdata  = wr_hold;
 
     fifo_sync #(
         .DATA_W (AXI_DW),
@@ -238,38 +241,50 @@ module ddr3_pixel_buf #(
     // =========================================================================
     // Read unpacker: extract PIX_PER_BEAT=4 pixels from each 64-bit beat
     // Each pixel is the lower PIXEL_W bits of a 16-bit slot.
+    // N11: only accept a new beat on a real pop (rd_en→rd_vld). Never reload
+    // from a sticky FWFT vld without consuming — that replayed 1 beat forever.
     // =========================================================================
-    reg [PACK_BITS-1:0]  rd_unpack_cnt;
     reg                   rd_beat_valid;
     reg [AXI_DW-1:0]     rd_beat_buf;
 
-    // Pop a new 64-bit beat from the read FIFO when the unpacker finishes
-    assign rd_fifo_rd_en = !rd_fifo_empty && (rd_unpack_cnt == {PACK_BITS{1'b0}});
+    reg [PACK_BITS-1:0] out_idx;
+    reg                 beat_loaded;
+    reg                 rd_pending; /* rd_en issued, waiting DO_REG=0 vld */
+
+    assign rd_fifo_rd_en = !rd_fifo_empty && !beat_loaded && !rd_stall && !rd_pending;
 
     always @(posedge clk) begin
         if (!rst_n) begin
-            rd_unpack_cnt <= {PACK_BITS{1'b0}};
+            out_idx       <= {PACK_BITS{1'b0}};
             rd_beat_valid <= 1'b0;
+            beat_loaded   <= 1'b0;
+            rd_pending    <= 1'b0;
+            rd_beat_buf   <= {AXI_DW{1'b0}};
         end else begin
             rd_beat_valid <= 1'b0;
-            if (rd_fifo_rd_vld && rd_unpack_cnt == {PACK_BITS{1'b0}}) begin
-                // Load new beat and output the first pixel immediately
-                rd_beat_buf   <= rd_fifo_rdata;
+            if (rd_fifo_rd_en)
+                rd_pending <= 1'b1;
+
+            if (rd_stall) begin
+                /* freeze: keep beat_loaded/out_idx/pending, no valid */
+            end else if (beat_loaded) begin
                 rd_beat_valid <= 1'b1;
-                rd_unpack_cnt <= {{(PACK_BITS-1){1'b0}}, 1'b1};
-            end else if (rd_unpack_cnt != {PACK_BITS{1'b0}}) begin
-                // Output subsequent pixels from the buffered beat
-                rd_beat_valid <= 1'b1;
-                if (rd_unpack_cnt == PIX_PER_BEAT[PACK_BITS:0] - 1)
-                    rd_unpack_cnt <= {PACK_BITS{1'b0}};
-                else
-                    rd_unpack_cnt <= rd_unpack_cnt + 1;
+                if (out_idx == PIX_PER_BEAT[PACK_BITS:0] - 1) begin
+                    out_idx     <= {PACK_BITS{1'b0}};
+                    beat_loaded <= 1'b0;
+                end else begin
+                    out_idx <= out_idx + 1'b1;
+                end
+            end else if (rd_fifo_rd_vld) begin
+                rd_beat_buf <= rd_fifo_rdata;
+                out_idx     <= {PACK_BITS{1'b0}};
+                beat_loaded <= 1'b1;
+                rd_pending  <= 1'b0;
             end
         end
     end
 
-    // Extract the PIXEL_W-bit pixel from the 16-bit slot at rd_unpack_cnt
-    assign m_pix_data  = rd_beat_buf[rd_unpack_cnt * 16 +: PIXEL_W];
+    assign m_pix_data  = rd_beat_buf[out_idx * 16 +: PIXEL_W];
     assign m_pix_valid = rd_beat_valid;
 
     // =========================================================================
@@ -335,26 +350,25 @@ module ddr3_pixel_buf #(
                     end
                 end
 
-                // Stream BURST_LEN beats from the write FIFO onto the W channel.
+                // Stream BURST_LEN beats; latch beat until WREADY (don't depend on 1-cycle rd_vld).
                 WS_DATA: begin
-                    if (wr_fifo_rd_vld) begin
+                    if (wr_fifo_rd_vld && !m_axi_wvalid) begin
                         m_axi_wdata  <= wr_fifo_rdata;
                         m_axi_wvalid <= 1'b1;
                         m_axi_wlast  <= (wr_beat == BURST_LEN[7:0] - 1);
-                        if (m_axi_wready) begin
-                            wr_beat <= wr_beat + 1;
-                            wr_ptr  <= wr_ptr + (AXI_DW/8);
-                            if (wr_beat < BURST_LEN[7:0] - 1) begin
-                                wr_fifo_pop <= 1'b1;  // Fetch next beat
-                            end else begin
-                                m_axi_wvalid <= 1'b0;
-                                ws_state     <= WS_RESP;
-                                // Page flip at frame boundary
-                                if (wr_ptr + (AXI_DW/8) >= FB_BYTES[AXI_AW-1:0]) begin
-                                    wr_ptr       <= {AXI_AW{1'b0}};
-                                    wr_page      <= !wr_page;
-                                    wr_frame_cnt <= wr_frame_cnt + 1;
-                                end
+                    end
+                    if (m_axi_wvalid && m_axi_wready) begin
+                        m_axi_wvalid <= 1'b0;
+                        wr_beat      <= wr_beat + 1;
+                        wr_ptr       <= wr_ptr + (AXI_DW/8);
+                        if (wr_beat < BURST_LEN[7:0] - 1) begin
+                            wr_fifo_pop <= 1'b1;
+                        end else begin
+                            ws_state <= WS_RESP;
+                            if (wr_ptr + (AXI_DW/8) >= FB_BYTES[AXI_AW-1:0]) begin
+                                wr_ptr       <= {AXI_AW{1'b0}};
+                                wr_page      <= !wr_page;
+                                wr_frame_cnt <= wr_frame_cnt + 1;
                             end
                         end
                     end

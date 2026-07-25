@@ -98,10 +98,22 @@ module line_buffer_ctrl #(
 
     wire wr_ok = s_pixel_tvalid;
 
+    // SOF is write-side one-shot; read starts after the first row is buffered,
+    // so `sof_lat && re_lat` almost never coincides. Hold SOF until the first
+    // read-side output of this frame (col_x=0,col_y=0), then emit col_sof.
+    reg sof_pend;
+
     always @(posedge clk) begin
         if (!rst_n) begin
             wr_line      <= 4'd0;
             wr_col       <= {ADDR_W{1'b0}};
+            lines_filled <= 4'd0;
+            buf_full     <= 1'b0;
+            wr_row_total <= 11'd0;
+        end else if (s_pixel_sof && wr_ok) begin
+            // New frame: restart write geometry; SOF pixel writes to col 0 (see wa_r)
+            wr_line      <= 4'd0;
+            wr_col       <= {{(ADDR_W-1){1'b0}}, 1'b1}; // next column after (0)
             lines_filled <= 4'd0;
             buf_full     <= 1'b0;
             wr_row_total <= 11'd0;
@@ -143,12 +155,19 @@ module line_buffer_ctrl #(
             rd_col    <= {ADDR_W{1'b0}};
             rd_y      <= 11'd0;    // --- CHANGE v2: was 11'd5 ---
             rd_active <= 1'b0;
+        end else if (s_pixel_sof && wr_ok) begin
+            rd_head   <= 4'd0;
+            rd_col    <= {ADDR_W{1'b0}};
+            rd_y      <= 11'd0;
+            rd_active <= 1'b0;
         end else begin
             // Start reading after first row is ready
-            if (buf_full && !rd_active)
+            // Start reading after first row is ready; only advance with wr_ok
+            // so FRAME_GAP / backpressure gaps cannot free-run rd_col.
+            if (buf_full && !rd_active && wr_ok)
                 rd_active <= 1'b1;
 
-            if (rd_active) begin
+            if (rd_active && wr_ok) begin
                 if (rd_col < LINE_END) begin
                     rd_col <= rd_col + 1;
                 end else begin
@@ -174,9 +193,15 @@ module line_buffer_ctrl #(
     reg               re_r;
 
     always @(posedge clk) begin
-        wa_r      <= wr_col;       wd_r      <= s_pixel_tdata;
-        we_r      <= wr_ok;        wr_line_r <= wr_line;
-        ra_r      <= rd_col;       re_r      <= rd_active;
+        // On SOF beat, force write address 0 so the SOF pixel lands at (0,0)
+        wa_r      <= (s_pixel_sof && wr_ok) ? {ADDR_W{1'b0}} : wr_col;
+        wd_r      <= s_pixel_tdata;
+        we_r      <= wr_ok;
+        wr_line_r <= (s_pixel_sof && wr_ok) ? 4'd0 : wr_line;
+        // SOF NB-clears rd_active; force re/ra same cycle so stale tails die.
+        // Lock re to wr_ok so reads cannot free-run during input gaps.
+        ra_r      <= (s_pixel_sof && wr_ok) ? {ADDR_W{1'b0}} : rd_col;
+        re_r      <= (s_pixel_sof && wr_ok) ? 1'b0 : (rd_active & wr_ok);
     end
 
     // Second latency stage to match BRAM read latency
@@ -260,12 +285,9 @@ module line_buffer_ctrl #(
 
     // Latch rd_y two cycles (to align col_y output with col_pixels)
     reg [10:0] rd_y_r, rd_y_lat;
-    reg        sof_r, sof_lat;
     always @(posedge clk) begin
         rd_y_r   <= rd_y;
         rd_y_lat <= rd_y_r;
-        sof_r    <= s_pixel_sof;
-        sof_lat  <= sof_r;
     end
 
     // =========================================================================
@@ -323,11 +345,36 @@ module line_buffer_ctrl #(
     // =========================================================================
     // Pack col_pixels using clamped effective offsets (CHANGE v2)
     // =========================================================================
+    // Stamp col_sof on the first *new-frame* read output beat.
+    // n7i used `re_lat && sof_pend && rd_active_lat`, but SOF+1 still sees
+    // latched rd_active_lat=1 from the previous frame → false SOF clears
+    // sof_pend and the real first read never carries SOF. Use the 0→1 edge
+    // of rd_active, delayed 2 beats to line up with ra_lat/col_*.
+    reg        rd_active_d;
+    reg [1:0]  sof_pipe;
+    wire       rd_start = rd_active && !rd_active_d && sof_pend;
+    wire       col_sof_fire = sof_pipe[1];
+
+    always @(posedge clk) begin
+        if (!rst_n) begin
+            rd_active_d <= 1'b0;
+            sof_pend    <= 1'b0;
+            sof_pipe    <= 2'b0;
+        end else begin
+            rd_active_d <= rd_active;
+            if (s_pixel_sof && wr_ok)
+                sof_pend <= 1'b1;
+            else if (sof_pipe[1])
+                sof_pend <= 1'b0;
+            sof_pipe <= {sof_pipe[0], rd_start};
+        end
+    end
+
     always @(posedge clk) begin
         col_valid <= re_lat;
         col_x     <= ra_lat;
         col_y     <= rd_y_lat;
-        col_sof   <= sof_lat && re_lat;
+        col_sof   <= col_sof_fire;
 
         // Window row 0 = top (oldest physical slot), row 10 = bottom (newest)
         // Use eff_off_lat instead of raw index to apply edge clamping.

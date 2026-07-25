@@ -7,6 +7,7 @@
 #include "xil_cache.h"
 #include "xil_io.h"
 #include "sleep.h"
+#include "xtime_l.h"
 #include <string.h>
 #include "ov5640_config.h"
 
@@ -25,22 +26,33 @@
 #include "pl_isp.h"
 #include <string.h>
 
-/* Motorcomm 直连：广播更稳（免 ARP 时序）；单播作辅助 */
+/* Direct Ethernet link: broadcast to subnet (board RX/ARP unreliable for unicast) */
 #define ETH_DST_IP_STR   "10.0.0.255"
 #define ETH_PROBE_PORT   5003U
 #define ETH_DST_PORT     5010U   /* PC listen; avoid lktsrv.exe on 5002 */
 #define ETH_SRC_PORT     5001U
-#define UDP_MTU_DATA     1400U
+#define UDP_MTU_DATA     1472U
 
 #define IMG_W            ((u32)VIDEO_COLUMNS)
 #define IMG_H            ((u32)VIDEO_ROWS)
 /* 12B header = 3 full 32-bit AXIS beats (TKEEP=F); bytes[0..9] same as before */
 #define FRAME_HDR_SZ     12U
-#define FRAME_DATA_SZ    (IMG_W * IMG_H * 4U)  /* RGBX: R,G,B,0 per pixel */
+#define FRAME_DATA_SZ    (IMG_W * IMG_H * 4U)  /* RGBX from PL DMA */
+#define FRAME_Y8_SZ      (IMG_W * IMG_H * 1U)  /* PS packs Y8 for UDP */
 #define FRAME_TOT_SZ     (FRAME_HDR_SZ + FRAME_DATA_SZ)
+/* ETH_UDP_Y8=1: PS converts RGBX→Y8 before UDP (4x less packets, higher FPS) */
+#ifndef ETH_UDP_Y8
+#define ETH_UDP_Y8       0
+#endif
 
 #define CHUNK_HDR_SZ     8U
 #define CHUNK_DATA_SZ    (UDP_MTU_DATA - CHUNK_HDR_SZ)
+/* N8: Bit A 固定 H-wrap=449；Bit B 先关（PLAN_v3 §3），溢出未清前盲目旋转无意义 */
+#ifndef ETH_HWRAP_ROT_PIX
+#define ETH_HWRAP_ROT_PIX 0U
+#endif
+/* N8 capture: slight pace so Win NIC doesn't drop ~17% broadcast chunks */
+#define ETH_DEBUG_CHUNK_SLEEP_US 20U
 
 static XAxiDma DmaInst;
 static struct netif Netif;
@@ -112,7 +124,28 @@ static void udp_send_probe(const char *tag)
 	eth_poll_burst(64U);
 }
 
-static u8 RxBuf[FRAME_TOT_SZ + 64U] __attribute__((aligned(64U)));
+/* Double-buffer: rearm DMA on the free bank before UDP send so PL sees
+ * tready=1 during the next frame (pairs with frame_eth_tx S_DONE wait). */
+static u8 RxBuf[2][FRAME_TOT_SZ + 64U] __attribute__((aligned(64U)));
+static unsigned rx_fill; /* bank currently armed / receiving */
+#if ETH_UDP_Y8
+static u8 YBuf[FRAME_Y8_SZ] __attribute__((aligned(64U)));
+#endif
+#if (ETH_HWRAP_ROT_PIX > 0U)
+static u8 RotBuf[FRAME_DATA_SZ] __attribute__((aligned(64U)));
+
+/* Rotate RGBX left by rot_pix (fix fixed H-wrap; full-frame, no mix). */
+static void rgbx_rotate_left(u8 *pix, u32 rot_pix)
+{
+	u32 rot_b = rot_pix * 4U;
+
+	if (rot_b == 0U || rot_b >= FRAME_DATA_SZ)
+		return;
+	memcpy(RotBuf, pix + rot_b, FRAME_DATA_SZ - rot_b);
+	memcpy(RotBuf + (FRAME_DATA_SZ - rot_b), pix, rot_b);
+	memcpy(pix, RotBuf, FRAME_DATA_SZ);
+}
+#endif
 
 static void be16_pack(u8 *p, u16 v)
 {
@@ -168,11 +201,12 @@ static void dma_log_status(const char *tag)
 				  XAXIDMA_SR_OFFSET);
 	u32 len = XAxiDma_ReadReg(DmaInst.RegBase + XAXIDMA_RX_OFFSET,
 				   0x28U); /* S2MM_LENGTH offset */
-	Xil_DCacheInvalidateRange((UINTPTR)RxBuf, 32U);
+	Xil_DCacheInvalidateRange((UINTPTR)RxBuf[rx_fill], 32U);
 	xil_printf("[ETH] %s CR=0x%08X SR=0x%08X LEN=0x%08X"
-		   " RxBuf[0..3]=0x%02X%02X%02X%02X\r\n",
-		   tag, cr, sr, len,
-		   RxBuf[0], RxBuf[1], RxBuf[2], RxBuf[3]);
+		   " RxBuf[%u][0..3]=0x%02X%02X%02X%02X\r\n",
+		   tag, cr, sr, len, rx_fill,
+		   RxBuf[rx_fill][0], RxBuf[rx_fill][1],
+		   RxBuf[rx_fill][2], RxBuf[rx_fill][3]);
 }
 
 /* Read PL AXI-Lite status registers (read-only, safe) */
@@ -186,20 +220,27 @@ static void pl_status_dump(void)
 	u32 mpix = Xil_In32(base + 0x20CU);
 	u32 raw = Xil_In32(base + 0x210U);
 	u32 clahe = Xil_In32(base + 0x214U);
-	xil_printf("[PL] dead=0x%08X eth=0x%08X mipi_beat=%u mipi_pix=%u raw=%u clahe=%u\r\n",
-		   dead, ethb, mbeat, mpix, raw, clahe);
+	u32 sofdiag = Xil_In32(base + 0x218U);
+	xil_printf("[PL] dead=0x%08X eth_frm=%u skid_ovf=%u mipi_beat=%u mipi_pix=%u "
+		   "raw=%u clahe=%u sof(pre/col/enh/bilat)=%u/%u/%u/%u\r\n",
+		   dead, ethb & 0xFFFFU, (ethb >> 16) & 0xFFFFU,
+		   mbeat, mpix, raw, clahe,
+		   sofdiag & 0xFFU, (sofdiag >> 8) & 0xFFU,
+		   (sofdiag >> 16) & 0xFFU, (sofdiag >> 24) & 0xFFU);
 #endif
 }
 
 /* 重 arm S2MM；do_reset=0 保持 PL AXIS 连续流，避免每帧 reset 打断帧边界 */
 static int dma_arm_transfer_ex(int do_reset)
 {
+	u8 *buf = RxBuf[rx_fill];
+
 	if (do_reset)
 		dma_reset_s2mm();
-	Xil_DCacheInvalidateRange((UINTPTR)RxBuf, FRAME_TOT_SZ);
-	memset(RxBuf, 0, 32U);
-	Xil_DCacheFlushRange((UINTPTR)RxBuf, 32U);
-	if (XAxiDma_SimpleTransfer(&DmaInst, (UINTPTR)RxBuf, FRAME_TOT_SZ,
+	Xil_DCacheInvalidateRange((UINTPTR)buf, FRAME_TOT_SZ);
+	memset(buf, 0, 32U);
+	Xil_DCacheFlushRange((UINTPTR)buf, 32U);
+	if (XAxiDma_SimpleTransfer(&DmaInst, (UINTPTR)buf, FRAME_TOT_SZ,
 				   XAXIDMA_DEVICE_TO_DMA) != XST_SUCCESS) {
 		dma_log_status("arm fail");
 		return XST_FAILURE;
@@ -259,7 +300,7 @@ static int dma_wait_done(void)
 			return XST_FAILURE;
 		}
 	}
-	Xil_DCacheInvalidateRange((UINTPTR)RxBuf, FRAME_TOT_SZ);
+	Xil_DCacheInvalidateRange((UINTPTR)RxBuf[rx_fill], FRAME_TOT_SZ);
 	return XST_SUCCESS;
 }
 
@@ -321,6 +362,19 @@ static void dump_frame_pixels(const u8 *pix, u32 n)
 		   (unsigned)pmin, (unsigned)pmax, (unsigned)nz);
 }
 
+#if ETH_UDP_Y8
+/* Fast Y8: take G plane from RGBX (skip BT.601 mul at -O0) */
+static u32 rgbx_to_y8(const u8 *rgbx, u32 nbytes, u8 *y8)
+{
+	u32 npix = nbytes / 4U;
+	u32 i;
+
+	for (i = 0U; i < npix; i++)
+		y8[i] = rgbx[i * 4U + 1U];
+	return npix;
+}
+#endif
+
 static void udp_send_pixels(u16 frame_id, const u8 *pix, u32 data_len)
 {
 	u32 total_chunks =
@@ -362,6 +416,8 @@ static void udp_send_pixels(u16 frame_id, const u8 *pix, u32 data_len)
 			eth_poll_burst(32U);
 		else
 			eth_poll_tick();
+		if (ETH_DEBUG_CHUNK_SLEEP_US != 0U)
+			usleep(ETH_DEBUG_CHUNK_SLEEP_US);
 	}
 }
 
@@ -374,7 +430,7 @@ static int net_init(void)
 	init_platform();
 	lwip_init();
 
-	/* 10.0.0.0/24 直连，与 WiFi 192.168.x 无关 */
+	/* 10.0.0.0/24 direct link subnet (lab/experiment convention) */
 	IP4_ADDR(&ipaddr, 10, 0, 0, 10);
 	IP4_ADDR(&netmask, 255, 255, 255, 0);
 	IP4_ADDR(&gw, 10, 0, 0, 1);
@@ -434,14 +490,15 @@ static void ps_fill_gradient_frame(u16 fid)
 	u32 row, col;
 	u8 *pix;
 	u8 v;
+	u8 *buf = RxBuf[0];
 
-	RxBuf[0] = 0xAAU; RxBuf[1] = 0x55U;
-	RxBuf[2] = (u8)(fid >> 8); RxBuf[3] = (u8)(fid & 0xFFU);
-	RxBuf[4] = (u8)(IMG_W >> 8); RxBuf[5] = (u8)(IMG_W & 0xFFU);
-	RxBuf[6] = (u8)(IMG_H >> 8); RxBuf[7] = (u8)(IMG_H & 0xFFU);
-	RxBuf[8] = 1U; /* format RGBX */
-	RxBuf[9] = 0U;
-	pix = RxBuf + FRAME_HDR_SZ;
+	buf[0] = 0xAAU; buf[1] = 0x55U;
+	buf[2] = (u8)(fid >> 8); buf[3] = (u8)(fid & 0xFFU);
+	buf[4] = (u8)(IMG_W >> 8); buf[5] = (u8)(IMG_W & 0xFFU);
+	buf[6] = (u8)(IMG_H >> 8); buf[7] = (u8)(IMG_H & 0xFFU);
+	buf[8] = 1U; /* format RGBX */
+	buf[9] = 0U;
+	pix = buf + FRAME_HDR_SZ;
 	for (row = 0U; row < IMG_H; row++) {
 		for (col = 0U; col < IMG_W; col++) {
 			v = (u8)(col >> 3);
@@ -520,14 +577,20 @@ int eth_stream_main(void)
 	}
 
 	/*
-	 * 首笔 DMA 几乎必在帧中途 arm：收到的是半帧到 TLAST，缓冲无 AA55。
-	 * PL 随后进入 ~20ms gap；此处立刻 rearm，下一帧应从 AA55 开始。
+	 * n7n: PL only emits a frame while capture_en=1. Arm DMA first, then
+	 * raise capture_en; clear it as soon as TLAST is seen (before UDP).
 	 */
 	if (!ps_mode && dma_armed) {
-		xil_printf("[ETH] discard mid-frame sync (arm in gap)...\r\n");
+		xil_printf("[ETH] n7n capture_en sync...\r\n");
+		PlIsp_EthCapture(0);
+		usleep(1000U);
+		PlIsp_EthCapture(1);
 		(void)dma_wait_done();
+		PlIsp_EthCapture(0);
 		usleep(1000U);
 		dma_armed = (dma_arm_transfer_ex(0) == XST_SUCCESS);
+		if (dma_armed)
+			PlIsp_EthCapture(1);
 		pl_status_dump();
 	}
 
@@ -535,7 +598,7 @@ int eth_stream_main(void)
 		/* ============ PS 梯度模式（主路径：DMA 不可用时） ============ */
 		if (ps_mode) {
 			ps_fill_gradient_frame(fid);
-			udp_send_pixels(fid, RxBuf + FRAME_HDR_SZ, FRAME_DATA_SZ);
+			udp_send_pixels(fid, RxBuf[0] + FRAME_HDR_SZ, FRAME_DATA_SZ);
 			ok++;
 			fid++;
 			if ((ok % 30U) == 1U)
@@ -552,12 +615,21 @@ int eth_stream_main(void)
 
 		/* ============ PL DMA 模式 ============ */
 		int rc;
+		XTime t0, t1, t2;
+		XTime_GetTime(&t0);
 		if (dma_armed) {
 			dma_armed = 0;
 			rc = dma_wait_done();
 		} else {
-			rc = dma_recv_frame();
+			if (dma_arm_transfer_ex(1) != XST_SUCCESS)
+				rc = XST_FAILURE;
+			else {
+				PlIsp_EthCapture(1);
+				rc = dma_wait_done();
+			}
 		}
+		PlIsp_EthCapture(0);
+		XTime_GetTime(&t1);
 		if (rc != XST_SUCCESS) {
 			err++;
 			if ((err & 0x3FU) == 1U)
@@ -570,33 +642,38 @@ int eth_stream_main(void)
 			usleep(1000U);
 			eth_poll_tick();
 			dma_armed = (dma_arm_transfer_ex(0) == XST_SUCCESS);
+			if (dma_armed)
+				PlIsp_EthCapture(1);
 			continue;
 		}
 		u16 fw, fh, hdr_fid;
-		int off = find_frame_offset(RxBuf, FRAME_TOT_SZ, &hdr_fid, &fw, &fh);
+		int off = find_frame_offset(RxBuf[rx_fill], FRAME_TOT_SZ, &hdr_fid, &fw, &fh);
 
 		if (off < 0) {
 			err++;
 			if ((err & 0x3FU) == 1U) {
 				u16 tw, th, tfid;
-				int ph = parse_header(RxBuf, &tfid, &tw, &th);
+				int ph = parse_header(RxBuf[rx_fill], &tfid, &tw, &th);
 				xil_printf("[ETH] bad frame header"
 					   " RxBuf=%02X%02X%02X%02X"
 					   " %02X%02X%02X%02X %02X%02X%02X%02X"
 					   " parse=%d fid=%u w=%u h=%u\r\n",
-					   RxBuf[0], RxBuf[1], RxBuf[2], RxBuf[3],
-					   RxBuf[4], RxBuf[5], RxBuf[6], RxBuf[7],
-					   RxBuf[8], RxBuf[9], RxBuf[10], RxBuf[11],
+					   RxBuf[rx_fill][0], RxBuf[rx_fill][1],
+					   RxBuf[rx_fill][2], RxBuf[rx_fill][3],
+					   RxBuf[rx_fill][4], RxBuf[rx_fill][5],
+					   RxBuf[rx_fill][6], RxBuf[rx_fill][7],
+					   RxBuf[rx_fill][8], RxBuf[rx_fill][9],
+					   RxBuf[rx_fill][10], RxBuf[rx_fill][11],
 					   ph, (unsigned)tfid, (unsigned)tw, (unsigned)th);
 				pl_status_dump();
 			}
-			/* TLAST 后 PL 在 gap：立刻 rearm，勿睡满 20ms 错过 AA55 */
 			usleep(1000U);
 			eth_poll_tick();
 			dma_armed = (dma_arm_transfer_ex(0) == XST_SUCCESS);
+			if (dma_armed)
+				PlIsp_EthCapture(1);
 			continue;
 		}
-		/* 仅接受帧头对齐的完整帧（off!=0 时尾部像素不足一帧） */
 		if (off != 0) {
 			err++;
 			if ((err & 0x3FU) == 1U)
@@ -604,29 +681,54 @@ int eth_stream_main(void)
 					   off);
 			usleep(1000U);
 			dma_armed = (dma_arm_transfer_ex(0) == XST_SUCCESS);
+			if (dma_armed)
+				PlIsp_EthCapture(1);
 			continue;
 		}
 		fid = hdr_fid;
-		/* RGBX payload is W*H*4; header W/H are pixel dims */
-		u32 n = FRAME_DATA_SZ;
+		/* Swap banks + rearm + capture_en BEFORE UDP (n7n). */
 		{
-			const u8 *pix = RxBuf + FRAME_HDR_SZ;
+			unsigned done = rx_fill;
+			u8 *pix = RxBuf[done] + FRAME_HDR_SZ;
+			u32 n = FRAME_DATA_SZ;
+			u32 skid_before = PlIsp_ReadSkidOvf();
+
+			rx_fill ^= 1U;
+			usleep(500U);
+			dma_armed = (dma_rearm_transfer() == XST_SUCCESS);
+			if (dma_armed)
+				PlIsp_EthCapture(1);
+
+#if (ETH_HWRAP_ROT_PIX > 0U)
+			rgbx_rotate_left(pix, ETH_HWRAP_ROT_PIX);
+#endif
+#if ETH_UDP_Y8
+			n = rgbx_to_y8(pix, FRAME_DATA_SZ, YBuf);
+			pix = YBuf;
+#endif
 			if ((ok & 0xFFU) == 0U)
 				dump_frame_pixels(pix, n);
 			udp_send_pixels(fid, pix, n);
+			XTime_GetTime(&t2);
+			ok++;
+			if ((ok & 0x0FU) == 1U) {
+				u32 dma_us = (u32)((t1 - t0) / (COUNTS_PER_SECOND / 1000000U));
+				u32 udp_us = (u32)((t2 - t1) / (COUNTS_PER_SECOND / 1000000U));
+				u32 skid_now = PlIsp_ReadSkidOvf();
+				xil_printf("[ETH] sent frame %u (%ux%u) err=%u"
+					   " dma_us=%u udp_us=%u y8=%d"
+					   " skid_ovf=%u(+%u) bank=%u\r\n",
+					   (unsigned)ok, (unsigned)fw, (unsigned)fh,
+					   (unsigned)err, (unsigned)dma_us, (unsigned)udp_us,
+					   ETH_UDP_Y8,
+					   (unsigned)skid_now,
+					   (unsigned)(skid_now - skid_before),
+					   done);
+			}
 		}
-		ok++;
-		if ((ok & 0xFFU) == 1U)
-			xil_printf("[ETH] sent frame %u (%ux%u off=%d) err=%u\r\n",
-				   (unsigned)ok, (unsigned)fw, (unsigned)fh, off,
-				   (unsigned)err);
-		/* 周期性重 ARP，消除 PC 晚于板上电导致单播 MAC 过期 */
 		if ((ok & 0x3FU) == 0U)
 			eth_arp_probe_pc();
 		eth_poll_tick();
-		/* 成功帧后也在 gap 内 rearm（TLAST 刚到） */
-		usleep(1000U);
-		dma_armed = (dma_rearm_transfer() == XST_SUCCESS);
 	}
 }
 

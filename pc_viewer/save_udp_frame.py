@@ -16,7 +16,6 @@ except ImportError:
 PORT = 5010
 IMG_W, IMG_H = 1920, 1080
 CHUNK_HDR = 8
-EXPECTED = IMG_W * IMG_H * 4  # RGBX from PL
 
 
 def main() -> int:
@@ -25,7 +24,11 @@ def main() -> int:
     ap.add_argument("--out", required=True, help="output PNG path")
     ap.add_argument("--timeout", type=float, default=60.0)
     ap.add_argument("--frames", type=int, default=1, help="save N-th complete frame")
+    ap.add_argument("--format", choices=("rgbx", "y8"), default="y8",
+                    help="payload packing (default y8 after ETH_UDP_Y8)")
     args = ap.parse_args()
+
+    expected = IMG_W * IMG_H * (4 if args.format == "rgbx" else 1)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -33,7 +36,7 @@ def main() -> int:
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 8 * 1024 * 1024)
     sock.bind(("", args.port))
     sock.settimeout(1.0)
-    print(f"[save] listen UDP :{args.port} timeout={args.timeout}s -> {args.out}")
+    print(f"[save] listen UDP :{args.port} fmt={args.format} timeout={args.timeout}s -> {args.out}")
 
     t0 = time.time()
     frames = {}
@@ -56,25 +59,27 @@ def main() -> int:
             continue
         chunks = frames.pop(fid)
         raw = b"".join(chunks[i] for i in range(total))
-        if len(raw) < EXPECTED:
-            print(f"[save] short frame fid={fid} bytes={len(raw)}")
+        if len(raw) < expected:
+            print(f"[save] short frame fid={fid} bytes={len(raw)} need={expected}")
             continue
         ok += 1
-        rgba = np.frombuffer(raw[:EXPECTED], dtype=np.uint8).reshape((IMG_H, IMG_W, 4))
-        # Memory order R,G,B,0 → OpenCV BGR
-        bgr = rgba[:, :, [2, 1, 0]].copy()
+        if args.format == "rgbx":
+            rgba = np.frombuffer(raw[:expected], dtype=np.uint8).reshape((IMG_H, IMG_W, 4))
+            bgr = rgba[:, :, [2, 1, 0]].copy()
+        else:
+            gray = np.frombuffer(raw[:expected], dtype=np.uint8).reshape((IMG_H, IMG_W))
+            bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR) if cv2 is not None else np.stack([gray]*3, axis=-1)
         mn, mx = int(bgr.min()), int(bgr.max())
         nz = int(np.count_nonzero(bgr))
-        print(f"[save] FRAME ok={ok} fid={fid} min={mn} max={mx} nz={nz} RGB from {addr[0]}")
+        print(f"[save] FRAME ok={ok} fid={fid} min={mn} max={mx} nz={nz} from {addr[0]}")
         if ok >= args.frames:
             if cv2 is not None:
                 cv2.imwrite(args.out, bgr)
             else:
-                rgb = rgba[:, :, :3]
-                with open(args.out.replace(".png", ".ppm"), "wb") as f:
-                    f.write(f"P6\n{IMG_W} {IMG_H}\n255\n".encode("ascii"))
-                    f.write(rgb.tobytes())
-                print("[save] no cv2, wrote PPM instead")
+                with open(args.out.replace(".png", ".pgm"), "wb") as f:
+                    f.write(f"P5\n{IMG_W} {IMG_H}\n255\n".encode("ascii"))
+                    f.write(raw[: IMG_W * IMG_H])
+                print("[save] no cv2, wrote PGM instead")
                 return 0
             print(f"[save] wrote {args.out}")
             return 0

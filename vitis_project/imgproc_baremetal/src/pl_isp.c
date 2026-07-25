@@ -3,6 +3,9 @@
  * r_ctrl[8]  legacy ETH test_pat bypass (direct test_pat_gen -> frame_eth_tx)
  * r_ctrl[9]  ISP test RAW source (isp_raw_pat_gen -> preprocessor)
  * r_ctrl[10] ETH from CLAHE output (default via RTL ISP_USE_TEST_RAW/ETH_USE_CLAHE)
+ *
+ * Do NOT write +0x08 (r_ctrl): historically hangs AXI. Use +0x20 bit0 for
+ * eth capture_en (r_ddr3_base[0] -> frame_eth_tx.capture_en).
  */
 #include "pl_isp.h"
 #include "xparameters.h"
@@ -14,6 +17,7 @@
 #endif
 
 #define PL_ISP_CTRL_OFF         0x08U
+#define PL_ISP_ETH_CAP_OFF      0x20U /* cfg_wreg[8] = r_ddr3_base */
 #define PL_ISP_STATUS_BASE      0x200U
 #define PL_ISP_ST_DEAD_CNT      (PL_ISP_STATUS_BASE + 0x00U)
 #define PL_ISP_ST_ETH_BUF       (PL_ISP_STATUS_BASE + 0x04U)
@@ -30,14 +34,15 @@
 
 static void pl_write_ctrl(u32 ctrl)
 {
-	/* PS д M_AXIL_CFG+0x08 ������ AXI���� RTL localparam ISP_USE_TEST_RAW/ETH_USE_CLAHE */
+	/* Intentionally no-op: writing +0x08 has hung the AXI fabric. */
 	(void)ctrl;
 }
 
 int PlIsp_Init(void)
 {
 	pl_write_ctrl(PL_CTRL_RES_1080P);
-	xil_printf("[PL] ISP res=1080p (RTL defaults: test_raw+clahe_eth)\r\n");
+	PlIsp_EthCapture(0);
+	xil_printf("[PL] ISP res=1080p (eth gate=tready-arm, no CFG write)\r\n");
 	return XST_SUCCESS;
 }
 
@@ -61,6 +66,19 @@ int PlIsp_UseMipiSource(int enable_mipi)
 	return XST_SUCCESS;
 }
 
+void PlIsp_EthCapture(int enable)
+{
+	/* n7o: do not touch AXI CFG writes (0x08/0x20 historically hang).
+	 * Capture gating is done in frame_eth_tx via tready rising-edge arm. */
+	(void)enable;
+}
+
+u32 PlIsp_ReadSkidOvf(void)
+{
+	u32 ethb = Xil_In32((UINTPTR)XPAR_M_AXIL_CFG_BASEADDR + PL_ISP_ST_ETH_BUF);
+	return (ethb >> 16) & 0xFFFFU;
+}
+
 void PlIsp_DumpStatus(void)
 {
 	UINTPTR base = (UINTPTR)XPAR_M_AXIL_CFG_BASEADDR;
@@ -70,12 +88,13 @@ void PlIsp_DumpStatus(void)
 	u32 mpix = Xil_In32(base + PL_ISP_ST_MIPI_PIX);
 	u32 raw = Xil_In32(base + PL_ISP_ST_RAW_PIX);
 	u32 clahe = Xil_In32(base + PL_ISP_ST_CLAHE_PIX);
-	u32 fifo_ovf = Xil_In32(base + PL_ISP_ST_FIFO_OVF);
-	xil_printf("[PL] st dead=0x%08X eth=0x%08X mipi_beat=%u mipi_pix=%u raw=%u clahe=%u fifo_ovf=%u\r\n",
-		   dead, ethb, mbeat, mpix, raw, clahe, fifo_ovf);
-}
-
-u32 PlIsp_ReadDeadPixelCnt(void)
-{
-	return Xil_In32((UINTPTR)XPAR_M_AXIL_CFG_BASEADDR + PL_ISP_ST_DEAD_CNT);
+	u32 sofdiag = Xil_In32(base + PL_ISP_ST_FIFO_OVF);
+	u32 cap = Xil_In32(base + PL_ISP_ETH_CAP_OFF);
+	xil_printf("[PL] st dead=0x%08X eth_frm=%u skid_ovf=%u mipi_beat=%u mipi_pix=%u "
+		   "raw=%u clahe=%u sof(pre/col/enh/bilat)=%u/%u/%u/%u cap=0x%08X\r\n",
+		   dead, ethb & 0xFFFFU, (ethb >> 16) & 0xFFFFU,
+		   mbeat, mpix, raw, clahe,
+		   sofdiag & 0xFFU, (sofdiag >> 8) & 0xFFU,
+		   (sofdiag >> 16) & 0xFFU, (sofdiag >> 24) & 0xFFU,
+		   cap);
 }

@@ -316,7 +316,10 @@ module zynq_display_ctrl #(
     // =========================================================================
     localparam DISP_FIFO_D = 4096;
 
-    wire              disp_wr_en   = s_pix_valid && cfg_start;
+    /* N9: HDMI path must not depend on cfg_start — PS never writes r_ctrl[0]
+     * (AXI +0x08 historically hangs). Keep AXI FB write gated by cfg_start
+     * so we don't burst-write DDR@fb_addr=0 when regs are still zero. */
+    wire              disp_wr_en   = s_pix_valid;
     wire              disp_rd_en;
     wire [PIXEL_W-1:0] disp_rd_data;
     wire              disp_rd_vld;

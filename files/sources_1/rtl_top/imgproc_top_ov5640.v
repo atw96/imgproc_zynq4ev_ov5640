@@ -45,7 +45,11 @@ module imgproc_top_ov5640 #(
     parameter IMG_H    = 1080,
     /* Compile-time ISP/ETH mux (Vivado generic override for MIPI bit) */
     parameter ISP_USE_TEST_RAW = 1'b1,
-    parameter ETH_USE_CLAHE    = 1'b1
+    parameter ETH_USE_CLAHE    = 1'b1,
+    /* n7r: 1 = eth emits sof-locked ramp (bypass ISP pixels) for N8 path check */
+    parameter ETH_FORCE_RAMP   = 1'b0,
+    /* PLAN_v3 N9b: ETH from ddr3_pixel_buf readout (gray RGBX); write side=bilat_Y */
+    parameter ETH_FROM_DDR3    = 1'b0
 )(
     // -------------------------------------------------------------------------
     // ?????PACKAGE_PIN / IOSTANDARD ??XDC??
@@ -180,11 +184,16 @@ module imgproc_top_ov5640 #(
     wire                 eth_axis_tlast;
     wire [3:0]           eth_axis_tkeep;
     wire [15:0]          eth_tx_frame_cnt;
+    wire [15:0]          eth_skid_ovf_cnt;
+    wire                 eth_pause_src;
     wire [31:0]          mipi_beat_cnt_w;
     wire [31:0]          mipi_pix_cnt_w;
     reg  [31:0]          raw_pixel_cnt_r;
     reg  [31:0]          clahe_pixel_cnt_r;
-    reg  [31:0]          fifo_ovf_cnt_r;
+    reg  [31:0]          fifo_ovf_cnt_r; /* Bit A/N7: reused as sof_diag pack */
+    /* N7: sticky SOF pulse counts (sat 255) @0x218 = {bilat,enh,col,pre} */
+    reg  [7:0]           sof_cnt_pre_r, sof_cnt_col_r, sof_cnt_enh_r, sof_cnt_bilat_r;
+    reg                  sof_pre_d, sof_col_d, sof_enh_d, sof_bilat_d;
 
     // A6. I2C ???BD ??IOBUF?????????
     wire iic_scl_i_w, iic_scl_o_w, iic_scl_t_w;
@@ -375,10 +384,16 @@ module imgproc_top_ov5640 #(
     wire [11:0] r_wb_gain_b   = (|cfg_wreg[6*32 +: 12]) ? cfg_wreg[6*32 +: 12] : 12'd1024;
     wire [31:0] r_gamma_wr    = cfg_wreg[7*32 +: 32];
     wire [31:0] r_ddr3_base   = cfg_wreg[8*32 +: 32];
+    /* PS never writes CFG safely; default FB away from low DDR (code/bss/DMA). */
+    wire [31:0] ddr3_base_addr = (|r_ddr3_base) ? r_ddr3_base : 32'h6000_0000;
     wire [31:0] r_sy_lut      = cfg_wreg[9*32 +: 32];
+    /* n7o: capture_en tied high; gating = tready rising-edge arm in frame_eth_tx */
+    wire        eth_capture_en = 1'b1;
 
+    /* cfg_start still gates display_ctrl AXI FB writes only (see zynq_display_ctrl).
+     * res_sel: PS never writes r_ctrl; default 1080p (01) so HDMI timing matches IMG_W/H. */
     wire        cfg_start     = r_ctrl[0];
-    wire [1:0]  res_sel       = r_ctrl[2:1];
+    wire [1:0]  res_sel       = (|r_ctrl[2:1]) ? r_ctrl[2:1] : 2'b01;
     /* r_ctrl[8]=legacy ETH test_pat bypass; [9]=ISP test RAW; [10]=ETH from CLAHE */
     wire        test_pat_en    = r_ctrl[8];
     wire        isp_src_test   = ((r_ctrl & 32'h00000600) == 32'h0) ?
@@ -451,7 +466,7 @@ module imgproc_top_ov5640 #(
         .mipi_pix_cnt  (mipi_pix_cnt_w)
     );
 
-    assign pat_raw_ready = 1'b1;  /* ?? CLAHE FIFO ?? RAW ???????? */
+    assign pat_raw_ready = isp_src_test ? !eth_pause_src : 1'b1;  /* n7r: skid prog_full → pause pat */
 
     isp_raw_pat_gen #(
         .RAW_W   (RAW_W),
@@ -515,6 +530,31 @@ module imgproc_top_ov5640 #(
         .dead_pixel_cnt (dead_cnt_w_int)
     );
 
+    // Delay preproc by 1clk so tlast can mark EOL on the previous pixel.
+    reg                preproc_valid_d;
+    reg [PIXEL_W-1:0]  preproc_R_d, preproc_G_d, preproc_B_d;
+    reg                preproc_sof_d;
+    wire               preproc_tlast = preproc_valid_d && preproc_valid &&
+                                       preproc_hsync && !preproc_vsync;
+
+    always @(posedge pl_clk or negedge rst_n) begin
+        if (!rst_n) begin
+            preproc_valid_d <= 1'b0;
+            preproc_R_d     <= {PIXEL_W{1'b0}};
+            preproc_G_d     <= {PIXEL_W{1'b0}};
+            preproc_B_d     <= {PIXEL_W{1'b0}};
+            preproc_sof_d   <= 1'b0;
+        end else begin
+            preproc_valid_d <= preproc_valid;
+            preproc_sof_d   <= preproc_sof;
+            if (preproc_valid) begin
+                preproc_R_d <= preproc_R;
+                preproc_G_d <= preproc_G;
+                preproc_B_d <= preproc_B;
+            end
+        end
+    end
+
     // =========================================================================
     // G/H/I. Per-channel linebuf + enhance + bilateral (R/G/B)
     // =========================================================================
@@ -537,24 +577,24 @@ module imgproc_top_ov5640 #(
 
     line_buffer_ctrl #(.PIXEL_W(PIXEL_W), .LINE_LEN(LINE_LEN), .NUM_LINES(NUM_LINES), .IMG_H(IMG_H)) u_linebuf_r (
         .clk(pl_clk), .rst_n(rst_n),
-        .s_pixel_tdata(preproc_R), .s_pixel_tvalid(preproc_valid),
-        .s_pixel_tlast(preproc_hsync), .s_pixel_sof(preproc_sof), .s_pixel_tready(),
+        .s_pixel_tdata(preproc_R_d), .s_pixel_tvalid(preproc_valid_d),
+        .s_pixel_tlast(preproc_tlast), .s_pixel_sof(preproc_sof_d), .s_pixel_tready(),
         .col_pixels(col_pix_r), .col_valid(col_valid_r),
         .col_x(col_x_r), .col_y(col_y_r), .col_sof(col_sof_r),
         .buf_full(), .fill_lines(), .wr_ptr_x()
     );
     line_buffer_ctrl #(.PIXEL_W(PIXEL_W), .LINE_LEN(LINE_LEN), .NUM_LINES(NUM_LINES), .IMG_H(IMG_H)) u_linebuf_g (
         .clk(pl_clk), .rst_n(rst_n),
-        .s_pixel_tdata(preproc_G), .s_pixel_tvalid(preproc_valid),
-        .s_pixel_tlast(preproc_hsync), .s_pixel_sof(preproc_sof), .s_pixel_tready(),
+        .s_pixel_tdata(preproc_G_d), .s_pixel_tvalid(preproc_valid_d),
+        .s_pixel_tlast(preproc_tlast), .s_pixel_sof(preproc_sof_d), .s_pixel_tready(),
         .col_pixels(col_pix_g), .col_valid(col_valid_g),
         .col_x(col_x_g), .col_y(col_y_g), .col_sof(col_sof_g),
         .buf_full(), .fill_lines(), .wr_ptr_x()
     );
     line_buffer_ctrl #(.PIXEL_W(PIXEL_W), .LINE_LEN(LINE_LEN), .NUM_LINES(NUM_LINES), .IMG_H(IMG_H)) u_linebuf_b (
         .clk(pl_clk), .rst_n(rst_n),
-        .s_pixel_tdata(preproc_B), .s_pixel_tvalid(preproc_valid),
-        .s_pixel_tlast(preproc_hsync), .s_pixel_sof(preproc_sof), .s_pixel_tready(),
+        .s_pixel_tdata(preproc_B_d), .s_pixel_tvalid(preproc_valid_d),
+        .s_pixel_tlast(preproc_tlast), .s_pixel_sof(preproc_sof_d), .s_pixel_tready(),
         .col_pixels(col_pix_b), .col_valid(col_valid_b),
         .col_x(col_x_b), .col_y(col_y_b), .col_sof(col_sof_b),
         .buf_full(), .fill_lines(), .wr_ptr_x()
@@ -592,9 +632,10 @@ module imgproc_top_ov5640 #(
     wire enh_hsync_r = enh_valid_r & (enh_x_r == 11'd0);
     wire enh_hsync_g = enh_valid_g & (enh_x_g == 11'd0);
     wire enh_hsync_b = enh_valid_b & (enh_x_b == 11'd0);
-    wire enh_sof_in_r = enh_sof_r | (enh_valid_r & (enh_x_r == 11'd0) & (enh_y_r == 11'd0));
-    wire enh_sof_in_g = enh_sof_g | (enh_valid_g & (enh_x_g == 11'd0) & (enh_y_g == 11'd0));
-    wire enh_sof_in_b = enh_sof_b | (enh_valid_b & (enh_x_b == 11'd0) & (enh_y_b == 11'd0));
+    /* Frame SOF only from pipeline-delayed enhance SOF (no coordinate fake SOF) */
+    wire enh_sof_in_r = enh_sof_r;
+    wire enh_sof_in_g = enh_sof_g;
+    wire enh_sof_in_b = enh_sof_b;
 
     bilateral_filter #(.PIXEL_W(PIXEL_W), .LINE_LEN(LINE_LEN), .WIN_HALF(2), .NORM_SHIFT(8)) u_bilat_r (
         .clk(pl_clk), .rst_n(rst_n),
@@ -621,23 +662,10 @@ module imgproc_top_ov5640 #(
         .m_pix_sof(bilat_sof_b), .m_pix_hsync()
     );
 
-    // Align on G channel timing; SOF: sticky from bilat + pixel-counter fallback
+    // Align on G channel timing; SOF only from bilateral (no pixel-count fake SOF)
     wire               bilat_valid = bilat_valid_g;
     wire [PIXEL_W-1:0] bilat_Y;
-    reg  [20:0]        bilat_frame_pix_r;
-    wire               bilat_sof_cnt = bilat_valid && (bilat_frame_pix_r == 21'd0);
-    wire               bilat_sof     = bilat_sof_g | bilat_sof_cnt;
-
-    always @(posedge pl_clk or negedge rst_n) begin
-        if (!rst_n)
-            bilat_frame_pix_r <= 21'd0;
-        else if (bilat_valid) begin
-            if (bilat_frame_pix_r == ETH_FRAME_PIX[20:0] - 1)
-                bilat_frame_pix_r <= 21'd0;
-            else
-                bilat_frame_pix_r <= bilat_frame_pix_r + 21'd1;
-        end
-    end
+    wire               bilat_sof   = bilat_sof_g;
 
     // BT.601 Y from filtered RGB (same cycle as bilat_valid)
     wire [22:0] bilat_y_sum = bilat_R * 23'd306 + bilat_G * 23'd601 + bilat_B * 23'd117;
@@ -666,11 +694,36 @@ module imgproc_top_ov5640 #(
     assign clahe_fifo_wr   = bilat_valid && !clahe_fifo_full;
 
     always @(posedge pl_clk or negedge rst_n) begin
-        if (!rst_n)
-            fifo_ovf_cnt_r <= 32'd0;
-        else if (bilat_valid && clahe_fifo_full)
-            fifo_ovf_cnt_r <= fifo_ovf_cnt_r + 32'd1;
+        if (!rst_n) begin
+            fifo_ovf_cnt_r  <= 32'd0;
+            sof_cnt_pre_r   <= 8'd0;
+            sof_cnt_col_r   <= 8'd0;
+            sof_cnt_enh_r   <= 8'd0;
+            sof_cnt_bilat_r <= 8'd0;
+            sof_pre_d       <= 1'b0;
+            sof_col_d       <= 1'b0;
+            sof_enh_d       <= 1'b0;
+            sof_bilat_d     <= 1'b0;
+        end else begin
+            if (bilat_valid && clahe_fifo_full)
+                fifo_ovf_cnt_r <= fifo_ovf_cnt_r + 32'd1;
+
+            sof_pre_d   <= preproc_sof;
+            sof_col_d   <= col_sof_g;
+            sof_enh_d   <= enh_sof_g;
+            sof_bilat_d <= bilat_sof;
+            if (preproc_sof && !sof_pre_d && sof_cnt_pre_r != 8'hFF)
+                sof_cnt_pre_r <= sof_cnt_pre_r + 8'd1;
+            if (col_sof_g && !sof_col_d && sof_cnt_col_r != 8'hFF)
+                sof_cnt_col_r <= sof_cnt_col_r + 8'd1;
+            if (enh_sof_g && !sof_enh_d && sof_cnt_enh_r != 8'hFF)
+                sof_cnt_enh_r <= sof_cnt_enh_r + 8'd1;
+            if (bilat_sof && !sof_bilat_d && sof_cnt_bilat_r != 8'hFF)
+                sof_cnt_bilat_r <= sof_cnt_bilat_r + 8'd1;
+        end
     end
+
+    wire [31:0] sof_diag_w = {sof_cnt_bilat_r, sof_cnt_enh_r, sof_cnt_col_r, sof_cnt_pre_r};
 
     fifo_sync #(
         .DATA_W (PIXEL_W + 1),
@@ -720,6 +773,11 @@ module imgproc_top_ov5640 #(
     // =========================================================================
     wire [PIXEL_W-1:0] disp_pix;
     wire               disp_pix_valid;
+    wire [31:0]        ddr3_wr_frame_cnt;
+
+    /* N9b: when ETH taps ddr3, write bilat_Y (CLAHE path is starved on MIPI). */
+    wire [PIXEL_W-1:0] ddr3_wr_data  = ETH_FROM_DDR3 ? bilat_Y     : clahe_Y;
+    wire               ddr3_wr_valid = ETH_FROM_DDR3 ? bilat_valid : clahe_valid;
 
     ddr3_pixel_buf #(
         .PIXEL_W   (PIXEL_W),
@@ -731,9 +789,10 @@ module imgproc_top_ov5640 #(
     ) u_ddr3_buf (
         .clk           (pl_clk),
         .rst_n         (rst_n),
-        .s_pix_data    (clahe_Y),
-        .s_pix_valid   (clahe_valid),
-        .buf_base_addr (r_ddr3_base),
+        .s_pix_data    (ddr3_wr_data),
+        .s_pix_valid   (ddr3_wr_valid),
+        .buf_base_addr (ddr3_base_addr),
+        .rd_stall      (ETH_FROM_DDR3 ? eth_pause_src : 1'b0),
         .m_pix_data    (disp_pix),
         .m_pix_valid   (disp_pix_valid),
         .m_axi_awaddr  (m_axi_hp1_awaddr),
@@ -762,7 +821,7 @@ module imgproc_top_ov5640 #(
         .m_axi_rlast   (m_axi_hp1_rlast),
         .m_axi_rready  (m_axi_hp1_rready),
         .wr_page       (),
-        .wr_frame_cnt  (),
+        .wr_frame_cnt  (ddr3_wr_frame_cnt),
         .wr_fifo_full  (),
         .rd_fifo_empty ()
     );
@@ -783,23 +842,51 @@ module imgproc_top_ov5640 #(
         end
     end
 
-    wire [PIXEL_W-1:0] eth_r = eth_from_clahe ? clahe_Y : bilat_R;
-    wire [PIXEL_W-1:0] eth_g = eth_from_clahe ? clahe_Y : bilat_G;
-    wire [PIXEL_W-1:0] eth_b = eth_from_clahe ? clahe_Y : bilat_B;
-    wire               eth_pix_valid = eth_from_clahe ? clahe_valid : bilat_valid;
-    wire               eth_pix_sof   = eth_from_clahe ? clahe_sof   : bilat_sof;
+    /* N9b: synthesize SOF on ddr3 readout (page loop, pixel0 = frame start). */
+    localparam integer DDR3_FRAME_PIX = IMG_W * IMG_H;
+    reg [20:0] ddr3_rd_pix_cnt;
+    always @(posedge pl_clk or negedge rst_n) begin
+        if (!rst_n)
+            ddr3_rd_pix_cnt <= 21'd0;
+        else if (disp_pix_valid) begin
+            if (ddr3_rd_pix_cnt == DDR3_FRAME_PIX[20:0] - 21'd1)
+                ddr3_rd_pix_cnt <= 21'd0;
+            else
+                ddr3_rd_pix_cnt <= ddr3_rd_pix_cnt + 21'd1;
+        end
+    end
+    wire ddr3_rd_sof = disp_pix_valid && (ddr3_rd_pix_cnt == 21'd0);
+
+    wire [PIXEL_W-1:0] eth_r = ETH_FROM_DDR3 ? disp_pix :
+                               (eth_from_clahe ? clahe_Y : bilat_R);
+    wire [PIXEL_W-1:0] eth_g = ETH_FROM_DDR3 ? disp_pix :
+                               (eth_from_clahe ? clahe_Y : bilat_G);
+    wire [PIXEL_W-1:0] eth_b = ETH_FROM_DDR3 ? disp_pix :
+                               (eth_from_clahe ? clahe_Y : bilat_B);
+    wire               eth_pix_valid = ETH_FROM_DDR3 ? disp_pix_valid :
+                                       (eth_from_clahe ? clahe_valid : bilat_valid);
+    wire               eth_pix_sof   = ETH_FROM_DDR3 ? ddr3_rd_sof :
+                                       (eth_from_clahe ? clahe_sof   : bilat_sof);
 
     (* mark_debug = "true" *) wire dbg_eth_valid = eth_pix_valid;
     (* mark_debug = "true" *) wire dbg_axis_tvalid = eth_axis_tvalid;
     (* mark_debug = "true" *) wire dbg_axis_tready = eth_axis_tready;
     (* mark_debug = "true" *) wire dbg_axis_tlast  = eth_axis_tlast;
+    /* N7 SOF chain probes (first disconnect was linebuf col_sof) */
+    (* mark_debug = "true" *) wire dbg_preproc_sof = preproc_sof;
+    (* mark_debug = "true" *) wire dbg_col_sof_g   = col_sof_g;
+    (* mark_debug = "true" *) wire dbg_enh_sof_g   = enh_sof_g;
+    (* mark_debug = "true" *) wire dbg_enh_sof_in_g = enh_sof_in_g;
+    (* mark_debug = "true" *) wire dbg_bilat_sof   = bilat_sof;
+    (* mark_debug = "true" *) wire dbg_eth_sof     = eth_pix_sof;
 
     frame_eth_tx #(
-        .PIXEL_W  (PIXEL_W),
-        .IMG_W    (IMG_W),
-        .IMG_H    (IMG_H),
-        .AXIS_DW  (32),
-        .FORMAT   (8'd1)
+        .PIXEL_W         (PIXEL_W),
+        .IMG_W           (IMG_W),
+        .IMG_H           (IMG_H),
+        .AXIS_DW         (32),
+        .FORMAT          (8'd1),
+        .FORCE_ETH_RAMP  (ETH_FORCE_RAMP)
     ) u_frame_eth (
         .clk            (pl_clk),
         .rst_n          (rst_n),
@@ -814,7 +901,10 @@ module imgproc_top_ov5640 #(
         .m_axis_tlast   (eth_axis_tlast),
         .m_axis_tkeep   (eth_axis_tkeep),
         .frame_skip     (r_ctrl[7:4]),
-        .tx_frame_cnt   (eth_tx_frame_cnt)
+        .capture_en     (eth_capture_en),
+        .tx_frame_cnt   (eth_tx_frame_cnt),
+        .skid_ovf_cnt   (eth_skid_ovf_cnt),
+        .pause_src      (eth_pause_src)
     );
 
 
@@ -872,12 +962,15 @@ module imgproc_top_ov5640 #(
     // M. ???????
     // =========================================================================
     assign cfg_status = {
-        fifo_ovf_cnt_r,
-        clahe_pixel_cnt_r,
+        /* 0x218: N7 SOF diag {bilat,enh,col,pre} counts (CLAHE ovf unused on Bit A) */
+        sof_diag_w,
+        /* 0x214: clahe pix cnt; when ETH_FROM_DDR3 reuse as ddr3 wr_frame_cnt */
+        (ETH_FROM_DDR3 ? ddr3_wr_frame_cnt : clahe_pixel_cnt_r),
         raw_pixel_cnt_w,
         mipi_pix_cnt_w,
         mipi_beat_cnt_w,
-        {16'd0, eth_tx_frame_cnt},
+        /* 0x204: [31:16]=skid_ovf sticky, [15:0]=eth tx frame cnt */
+        {eth_skid_ovf_cnt, eth_tx_frame_cnt},
         dead_cnt_w_int
     };
 

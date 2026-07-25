@@ -159,20 +159,34 @@ module img_preprocessor #(
         .clk_w(clk),.we(lbm_vld),.waddr(lb_rcnt_d1),.wdata(lbm_rd),
         .clk_r(clk),.re(lb_re),.raddr(lb_rcnt),.rdata(lbo_rd),.rdata_vld(lbo_vld));
 
-    reg [1:0] rpar_sr, cpar_sr, valid_sr, hsync_sr, vsync_sr;
+    reg [1:0] rpar_sr, cpar_sr, valid_sr, hsync_sr;
     reg [ADDR_W-1:0] col_sr0, col_sr1;
     reg [10:0]       row_sr0, row_sr1;
+    /* vsync cannot share the short 2-tap SR of demosaic control:
+     * valid through 3 BRAMs is much later, so vsync_sr & valid_sr never overlap
+     * -> preproc SOF was permanently 0 and ETH relied on coordinate fake SOF. */
+    reg vsync_pend;
 
     always @(posedge clk) begin
         rpar_sr  <= {rpar_sr[0],  s2_rpar};
         cpar_sr  <= {cpar_sr[0],  s2_cpar};
         valid_sr <= {valid_sr[0], lbo_vld};
         hsync_sr <= {hsync_sr[0], s2_hsync};
-        vsync_sr <= {vsync_sr[0], s2_vsync};
         col_sr0  <= s2_col;
         col_sr1  <= col_sr0;
         row_sr0  <= s2_row;
         row_sr1  <= row_sr0;
+    end
+
+    always @(posedge clk) begin
+        if (!rst_n)
+            vsync_pend <= 1'b0;
+        else if (s2_valid && s2_vsync)
+            vsync_pend <= 1'b1;
+        // Same-cycle clear with Soft consume: NB uses current vsync_pend so
+        // s3_vsync is a single-cycle pulse (do not wait for s3_vsync reg).
+        else if (vsync_pend && valid_sr[1])
+            vsync_pend <= 1'b0;
     end
 
     reg [PIXEL_W-1:0] lbn_prev, lbm_prev, lbo_prev;
@@ -208,7 +222,8 @@ module img_preprocessor #(
     always @(posedge clk) begin
         s3_valid <= valid_sr[1];
         s3_hsync <= hsync_sr[1];
-        s3_vsync <= vsync_sr[1];
+        /* First demosaic-valid beat after a write-side SOF carries frame SOF */
+        s3_vsync <= vsync_pend && valid_sr[1];
         // bayer_fmt reserved; RGGB via row/col parity
         case ({rpar_sr[1], cpar_sr[1]})
             2'b00: begin

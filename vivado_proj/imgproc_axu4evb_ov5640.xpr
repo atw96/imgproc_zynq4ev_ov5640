@@ -251,6 +251,7 @@
         <Generic Name="ISP_USE_TEST_RAW" Val="0"/>
         <Generic Name="ETH_USE_CLAHE" Val="0"/>
         <Generic Name="ETH_FROM_DDR3" Val="1"/>
+        <Generic Name="DDR3_FORCE_RAMP" Val="0"/>
       </Config>
     </FileSet>
     <FileSet Name="constrs_1" Type="Constrs" RelSrcDir="$PSRCDIR/constrs_1">

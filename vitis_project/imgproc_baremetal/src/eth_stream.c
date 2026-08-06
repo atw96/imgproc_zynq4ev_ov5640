@@ -24,6 +24,7 @@
 #include "platform_config.h"
 #include "ov5640_sensor.h"
 #include "pl_isp.h"
+#include "xuartps_hw.h"
 #include <string.h>
 
 /* Direct Ethernet link: broadcast to subnet (board RX/ARP unreliable for unicast) */
@@ -40,10 +41,51 @@
 #define FRAME_DATA_SZ    (IMG_W * IMG_H * 4U)  /* RGBX from PL DMA */
 #define FRAME_Y8_SZ      (IMG_W * IMG_H * 1U)  /* PS packs Y8 for UDP */
 #define FRAME_TOT_SZ     (FRAME_HDR_SZ + FRAME_DATA_SZ)
-/* ETH_UDP_Y8=1: PS converts RGBX→Y8 before UDP (4x less packets, higher FPS) */
+/* ETH_UDP_Y8=1: PS converts RGBX→Y8 before UDP (4x less packets, higher FPS).
+ * N24: default 0 — keep RGBX so PL demosaic color reaches PC. */
 #ifndef ETH_UDP_Y8
 #define ETH_UDP_Y8       0
 #endif
+/* N12 2B: AXI-R dead on HP1 — PS reads DDR ping-pong pages written by PL */
+#ifndef ETH_PS_DDR3_READ
+#define ETH_PS_DDR3_READ 1
+#endif
+#define DDR3_BASE_ADDR   0x60000000U
+/*
+ * N16: PL may write more than IMG_W px/line (pre-S3 ≈1988). Crop on read.
+ * After S3 col-gate, DDR stride == IMG_W. Override to 1988 only on old N12 bit.
+ */
+/*
+ * N18 bit (pre-gate): FB=1988*H, set N18_LEGACY_STRIDE=1 when testing that bit.
+ * N19 bit (sensor_if gate): stride=IMG_W, FB=IMG_W*H.
+ */
+#ifndef N18_LEGACY_STRIDE
+#define N18_LEGACY_STRIDE 0
+#endif
+#if N18_LEGACY_STRIDE
+#ifndef DDR3_LINE_STRIDE_PX
+#define DDR3_LINE_STRIDE_PX 1988U
+#endif
+#ifndef DDR3_FB_BYTES
+#define DDR3_FB_BYTES     (1988U * IMG_H * 4U)
+#endif
+#else
+#ifndef DDR3_LINE_STRIDE_PX
+#define DDR3_LINE_STRIDE_PX IMG_W
+#endif
+#ifndef DDR3_FB_BYTES
+#define DDR3_FB_BYTES     (IMG_W * IMG_H * 4U)
+#endif
+#endif
+#ifndef PL_DBG_DDR_SRC
+/* N25b deliverable: PL ISP preproc RGBX; UART still allows '1'=MIPI raw */
+#define PL_DBG_DDR_SRC    PL_DBG_SRC_PREPROC
+#endif
+static u32 s_line_stride_px = DDR3_LINE_STRIDE_PX;
+static u32 s_stride_bytes   = DDR3_LINE_STRIDE_PX * 4U;
+/* N22b: when set, reinterpret FB as content_w (e.g. 1864) then pad to IMG_W */
+static u32 s_deskew_w;
+static u32 s_fb_bytes       = DDR3_FB_BYTES;
 
 #define CHUNK_HDR_SZ     8U
 #define CHUNK_DATA_SZ    (UDP_MTU_DATA - CHUNK_HDR_SZ)
@@ -51,8 +93,9 @@
 #ifndef ETH_HWRAP_ROT_PIX
 #define ETH_HWRAP_ROT_PIX 0U
 #endif
-/* N8 capture: slight pace so Win NIC doesn't drop ~17% broadcast chunks */
-#define ETH_DEBUG_CHUNK_SLEEP_US 20U
+/* N16 S4: 20us/chunk ≈ RGBX~0.1s + Y8~0.03s; was 200us + 1s gap ≈0.47fps */
+/* N19b: Y8 still loses chunks at 100us; pace harder for full frames */
+#define ETH_DEBUG_CHUNK_SLEEP_US 250U
 
 static XAxiDma DmaInst;
 static struct netif Netif;
@@ -131,9 +174,10 @@ static unsigned rx_fill; /* bank currently armed / receiving */
 #if ETH_UDP_Y8
 static u8 YBuf[FRAME_Y8_SZ] __attribute__((aligned(64U)));
 #endif
-#if (ETH_HWRAP_ROT_PIX > 0U)
+#if ETH_PS_DDR3_READ || (ETH_HWRAP_ROT_PIX > 0U)
 static u8 RotBuf[FRAME_DATA_SZ] __attribute__((aligned(64U)));
-
+#endif
+#if (ETH_HWRAP_ROT_PIX > 0U)
 /* Rotate RGBX left by rot_pix (fix fixed H-wrap; full-frame, no mix). */
 static void rgbx_rotate_left(u8 *pix, u32 rot_pix)
 {
@@ -144,6 +188,195 @@ static void rgbx_rotate_left(u8 *pix, u32 rot_pix)
 	memcpy(RotBuf, pix + rot_b, FRAME_DATA_SZ - rot_b);
 	memcpy(RotBuf + (FRAME_DATA_SZ - rot_b), pix, rot_b);
 	memcpy(pix, RotBuf, FRAME_DATA_SZ);
+}
+#endif
+
+#if ETH_PS_DDR3_READ
+/* N18/N22b: PS row stride = PL written px/line (may be < IMG_W; pad on pack) */
+static void ddr3_apply_stride(u32 stride_px)
+{
+	if (stride_px < 640U)
+		stride_px = IMG_W;
+	if (stride_px > 4096U)
+		stride_px = 4096U;
+	if ((stride_px & 1U) != 0U)
+		stride_px &= ~1U; /* RGBX packer / Bayer: even */
+	s_line_stride_px = stride_px;
+	s_stride_bytes   = stride_px * 4U;
+	/* PL page size stays FB_BYTES; short lines are packed contiguously */
+	s_fb_bytes = DDR3_FB_BYTES;
+	xil_printf("[ETH] stride=%u fb=%u B\r\n",
+		   (unsigned)s_line_stride_px, (unsigned)s_fb_bytes);
+}
+
+static u32 ddr3_read_line_px(void)
+{
+#ifdef XPAR_M_AXIL_CFG_BASEADDR
+	return Xil_In32((UINTPTR)XPAR_M_AXIL_CFG_BASEADDR + 0x21CU) & 0xFFFFU;
+#else
+	return DDR3_LINE_STRIDE_PX;
+#endif
+}
+
+static void ddr3_sync_stride_from_hw(void)
+{
+	u16 w = 0U, h = 0U;
+	u32 locked = 0U;
+	u32 line_px = ddr3_read_line_px();
+	u32 src = PlIsp_GetDbgSrc();
+	u32 use = DDR3_LINE_STRIDE_PX;
+
+	(void)PlIsp_ReadFrameGeom(&w, &h, &locked);
+	/* N22b: prefer DDR measured_line_px / si_w (csi_line match after out=1864) */
+	if (line_px >= 1600U && line_px <= 2048U)
+		use = line_px;
+	else if (w >= 1600U && w <= 2048U)
+		use = (u32)w;
+	ddr3_apply_stride(use);
+	xil_printf("[ETH] geom si_w=%u si_h=%u line_px=%u locked=%u src=%u\r\n",
+		   (unsigned)w, (unsigned)h, (unsigned)line_px,
+		   (unsigned)locked, (unsigned)src);
+}
+
+/* Pack DDR rows (stride may be < IMG_W) into contiguous IMG_W RGBX; pad X.
+ * Optional deskew: linear reinterpret at s_deskew_w (fixes ~55px/row shear). */
+static u8 *ddr3_pack_crop(const u8 *src)
+{
+	u32 row;
+	u32 max_rows = s_fb_bytes / s_stride_bytes;
+	u32 copy_px = s_line_stride_px;
+	u32 copy_b;
+
+	if (s_deskew_w >= 1600U && s_deskew_w < IMG_W &&
+	    s_line_stride_px == IMG_W) {
+		u32 dw = s_deskew_w;
+		u32 n_src = IMG_W * IMG_H;
+		u32 d_rows = (n_src / dw);
+
+		if (d_rows > IMG_H)
+			d_rows = IMG_H;
+		for (row = 0U; row < d_rows; row++) {
+			u32 col = 0U;
+
+			while (col < dw) {
+				u32 idx = row * dw + col;
+				u32 sr = idx / IMG_W;
+				u32 sc = idx % IMG_W;
+				u32 run = IMG_W - sc;
+
+				if (run > (dw - col))
+					run = dw - col;
+				memcpy(RotBuf + (row * IMG_W + col) * 4U,
+				       src + (sr * IMG_W + sc) * 4U,
+				       run * 4U);
+				col += run;
+			}
+			memset(RotBuf + (row * IMG_W + dw) * 4U, 0,
+			       (IMG_W - dw) * 4U);
+		}
+		if (d_rows < IMG_H)
+			memset(RotBuf + d_rows * IMG_W * 4U, 0,
+			       (IMG_H - d_rows) * IMG_W * 4U);
+		return RotBuf;
+	}
+
+	if (copy_px > IMG_W)
+		copy_px = IMG_W;
+	copy_b = copy_px * 4U;
+
+	if (s_line_stride_px == IMG_W)
+		return (u8 *)(UINTPTR)src;
+	if (max_rows > IMG_H)
+		max_rows = IMG_H;
+	for (row = 0U; row < max_rows; row++) {
+		memcpy(RotBuf + row * IMG_W * 4U,
+		       src + row * s_stride_bytes,
+		       copy_b);
+		if (copy_px < IMG_W)
+			memset(RotBuf + row * IMG_W * 4U + copy_b, 0,
+			       (IMG_W - copy_px) * 4U);
+	}
+	if (max_rows < IMG_H)
+		memset(RotBuf + max_rows * IMG_W * 4U, 0,
+		       (IMG_H - max_rows) * IMG_W * 4U);
+	return RotBuf;
+}
+
+/* N18 exposure ladder (lines); 'e' advances, 'E' resets; 'g' bumps gain */
+static const u32 s_exp_ladder[] = {
+	100U, 200U, 400U, 800U, 1200U, 1600U, 2000U, 3000U
+};
+static u32 s_exp_idx;
+static u16 s_gain_q4 = 0x10U; /* 1.0x */
+
+/* UART '0'..'3' switch r_dbg; 'e'/'g' exposure; 's' status — non-blocking */
+static void eth_poll_dbg_cmd(void)
+{
+#ifdef STDIN_BASEADDRESS
+	if (XUartPs_IsReceiveData(STDIN_BASEADDRESS)) {
+		char c = (char)XUartPs_RecvByte(STDIN_BASEADDRESS);
+		if (c >= '0' && c <= '3') {
+			u32 src = (u32)(c - '0');
+			PlIsp_SetDbgSrc(src);
+			usleep(200000U); /* settle one frame */
+			ddr3_sync_stride_from_hw();
+			PlIsp_DumpStatus();
+		} else if (c == 's' || c == 'S') {
+			PlIsp_DumpStatus();
+		} else if (c == 'e') {
+			if (s_exp_idx + 1U < (u32)(sizeof(s_exp_ladder) / sizeof(s_exp_ladder[0])))
+				s_exp_idx++;
+			(void)Ov5640_SetManualExposure(s_exp_ladder[s_exp_idx], s_gain_q4);
+		} else if (c == 'E') {
+			s_exp_idx = 0U;
+			(void)Ov5640_SetManualExposure(s_exp_ladder[s_exp_idx], s_gain_q4);
+		} else if (c == 'g') {
+			if (s_gain_q4 < 0x100U)
+				s_gain_q4 = (u16)(s_gain_q4 << 1);
+			else if (s_gain_q4 < 0x3FFU)
+				s_gain_q4 = 0x3FFU;
+			(void)Ov5640_SetManualExposure(s_exp_ladder[s_exp_idx], s_gain_q4);
+		} else if (c == 'G') {
+			s_gain_q4 = 0x10U;
+			(void)Ov5640_SetManualExposure(s_exp_ladder[s_exp_idx], s_gain_q4);
+		} else if (c == 'a' || c == 'A') {
+			(void)Ov5640_SetAutoExposure(1);
+		} else if (c == 't') {
+			(void)Ov5640_SetTestPattern(1);
+		} else if (c == 'T') {
+			(void)Ov5640_SetTestPattern(0);
+		} else if (c == 'w') {
+			/* N22b: 1864 matches measured content period (shear=56@1920) */
+			(void)Ov5640_SetOutputSize(1864U, 1080U);
+			s_deskew_w = 0U;
+			usleep(200000U);
+			ddr3_sync_stride_from_hw();
+		} else if (c == 'W') {
+			(void)Ov5640_SetOutputSize(1920U, 1080U);
+			s_deskew_w = 0U;
+			usleep(200000U);
+			ddr3_sync_stride_from_hw();
+		} else if (c == 'r') {
+			/* keep sensor 1920; PS reshape deskew @1864 */
+			(void)Ov5640_SetOutputSize(1920U, 1080U);
+			s_deskew_w = 1864U;
+			usleep(200000U);
+			ddr3_sync_stride_from_hw();
+			xil_printf("[ETH] deskew_w=%u\r\n", (unsigned)s_deskew_w);
+		} else if (c == 'R') {
+			s_deskew_w = 0U;
+			xil_printf("[ETH] deskew off\r\n");
+		} else if (c == 'd' || c == 'D') {
+			(void)Ov5640_DumpTiming();
+		} else if (c == 'b' || c == 'B') {
+			/* N25: cycle Bayer phase 0..3 via r_dbg[4:3] */
+			u32 ph = (PlIsp_GetBayerPhase() + 1U) & 0x3U;
+			PlIsp_SetBayerPhase(ph);
+			usleep(200000U);
+			PlIsp_DumpStatus();
+		}
+	}
+#endif
 }
 #endif
 
@@ -212,22 +445,7 @@ static void dma_log_status(const char *tag)
 /* Read PL AXI-Lite status registers (read-only, safe) */
 static void pl_status_dump(void)
 {
-#ifdef XPAR_M_AXIL_CFG_BASEADDR
-	UINTPTR base = (UINTPTR)XPAR_M_AXIL_CFG_BASEADDR;
-	u32 dead = Xil_In32(base + 0x200U);
-	u32 ethb = Xil_In32(base + 0x204U);
-	u32 mbeat = Xil_In32(base + 0x208U);
-	u32 mpix = Xil_In32(base + 0x20CU);
-	u32 raw = Xil_In32(base + 0x210U);
-	u32 clahe = Xil_In32(base + 0x214U);
-	u32 sofdiag = Xil_In32(base + 0x218U);
-	xil_printf("[PL] dead=0x%08X eth_frm=%u skid_ovf=%u mipi_beat=%u mipi_pix=%u "
-		   "raw=%u clahe=%u sof(pre/col/enh/bilat)=%u/%u/%u/%u\r\n",
-		   dead, ethb & 0xFFFFU, (ethb >> 16) & 0xFFFFU,
-		   mbeat, mpix, raw, clahe,
-		   sofdiag & 0xFFU, (sofdiag >> 8) & 0xFFU,
-		   (sofdiag >> 16) & 0xFFU, (sofdiag >> 24) & 0xFFU);
-#endif
+	PlIsp_DumpStatus();
 }
 
 /* 重 arm S2MM；do_reset=0 保持 PL AXIS 连续流，避免每帧 reset 打断帧边界 */
@@ -516,6 +734,111 @@ int eth_stream_main(void)
 	xil_printf("[ETH] enter eth_stream_main (%ux%u buf, %u B/frame)\r\n",
 		   (unsigned)IMG_W, (unsigned)IMG_H, (unsigned)FRAME_TOT_SZ);
 
+#if ETH_PS_DDR3_READ
+	/* ---- N12 2B: skip PL DMA; PS reads DDR3 ping-pong ---- */
+	xil_printf("[ETH] N18 PS-DDR3 mode (base=0x%08X fb=%u B stride=%u "
+		   "Y8=%u sleep_us=%u dbg=%u)\r\n",
+		   (unsigned)DDR3_BASE_ADDR, (unsigned)s_fb_bytes,
+		   (unsigned)s_line_stride_px, (unsigned)ETH_UDP_Y8,
+		   (unsigned)ETH_DEBUG_CHUNK_SLEEP_US, (unsigned)PL_DBG_DDR_SRC);
+	xil_printf("[ETH] UART: '0'..'3'=dbg_src 's'=status "
+		   "'e'/'E'=exp+ /reset 'g'/'G'=gain+ /reset 'a'=AEC "
+		   "'t'/'T'=colorbar 'b'=bayer_phase\r\n");
+
+	xil_printf("[ETH] step: net_init...\r\n");
+	if (net_init() != 0) {
+		xil_printf("[ETH] net init failed\r\n");
+		return -1;
+	}
+
+	mipi_dump_status();
+	/* N24: load gamma before switching dbg src so first preproc frame is correct */
+	PlIsp_LoadGammaLut();
+	PlIsp_SetDbgSrc(PL_DBG_DDR_SRC);
+	usleep(300000U);
+	ddr3_sync_stride_from_hw();
+	pl_status_dump();
+
+	/* N25b: gray-world from bright scene @ bayer_phase=3 (Q10) */
+	PlIsp_SetWbGains(999U, 995U, 1083U);
+
+	{
+		u32 p;
+		for (p = 0U; p < 20U; p++) {
+			udp_send_probe("IMGPROC_PROBE");
+			usleep(200000U);
+		}
+		xil_printf("[ETH] probe x20 done, start PS-DDR3 stream\r\n");
+	}
+
+	{
+		u32 ok = 0U, err = 0U;
+		u16 fid = 0U;
+		u32 last_wr = 0xFFFFFFFFU;
+		u32 stall = 0U;
+
+		for (;;) {
+			u32 wr_frame = 0U, wr_page = 0U;
+			u32 st = PlIsp_ReadWrStatus(&wr_frame, &wr_page);
+			u32 rd_page;
+			u8 *pix;
+			(void)st;
+
+			eth_poll_dbg_cmd();
+			if (wr_frame == last_wr) {
+				stall++;
+				if (stall > 50000U) {
+					xil_printf("[ETH] wr_frame stuck=%u page=%u\r\n",
+						   (unsigned)wr_frame, (unsigned)wr_page);
+					pl_status_dump();
+					stall = 0U;
+				}
+				eth_poll_tick();
+				usleep(100U);
+				continue;
+			}
+			/* Need at least one completed frame before reading opposite page */
+			if (wr_frame == 0U) {
+				eth_poll_tick();
+				usleep(1000U);
+				continue;
+			}
+			last_wr = wr_frame;
+			stall = 0U;
+			rd_page = wr_page ? 0U : 1U;
+			pix = (u8 *)(UINTPTR)(DDR3_BASE_ADDR +
+					      rd_page * s_fb_bytes);
+			Xil_DCacheInvalidateRange((UINTPTR)pix, s_fb_bytes);
+			pix = ddr3_pack_crop(pix);
+
+#if (ETH_HWRAP_ROT_PIX > 0U)
+			rgbx_rotate_left(pix, ETH_HWRAP_ROT_PIX);
+#endif
+#if ETH_UDP_Y8
+			{
+				u32 n = rgbx_to_y8(pix, FRAME_DATA_SZ, YBuf);
+				udp_send_pixels(fid, YBuf, n);
+			}
+#else
+			udp_send_pixels(fid, pix, FRAME_DATA_SZ);
+#endif
+			ok++;
+			fid++;
+			if ((ok & 0x0FU) == 1U) {
+				xil_printf("[ETH] sent frame %u (PS-DDR3 rd_page=%u "
+					   "wr_frm=%u) err=%u\r\n",
+					   (unsigned)ok, (unsigned)rd_page,
+					   (unsigned)wr_frame, (unsigned)err);
+				pl_status_dump();
+			}
+			if ((ok & 0x3FU) == 0U)
+				eth_arp_probe_pc();
+			eth_poll_tick();
+			usleep(300000U); /* N19b: more frame gap for USB NIC */
+		}
+	}
+#else /* !ETH_PS_DDR3_READ — original PL DMA path */
+
 	/* ---- DMA 初始化 ---- */
 	xil_printf("[ETH] step: dma_init...\r\n");
 	if (dma_init() != XST_SUCCESS) {
@@ -730,6 +1053,7 @@ int eth_stream_main(void)
 			eth_arp_probe_pc();
 		eth_poll_tick();
 	}
+#endif /* ETH_PS_DDR3_READ */
 }
 
 #else

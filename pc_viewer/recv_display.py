@@ -16,8 +16,8 @@ import time
 import threading
 
 # ---- 配置 ----
-BIND_IP      = ""
-DEFAULT_PORT = 5010
+BIND_IP      = "<pc_ip>"
+DEFAULT_PORT = 5001
 FALLBACK_PORTS = [5010, 5020, 5100, 5200, 7002]
 IMG_W        = 1920
 IMG_H        = 1080
@@ -149,7 +149,7 @@ def main():
                       end="", flush=True)
         else:
             blank = np.zeros((540, 960, 3), dtype=np.uint8)
-            cv2.putText(blank, f"Waiting UDP {BIND_IP or '0.0.0.0'}:{listen_port} from 10.0.0.10...",
+            cv2.putText(blank, f"Waiting UDP {BIND_IP or '0.0.0.0'}:{listen_port} from <board_ip>...",
                         (60, 270), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 200, 255), 2)
             cv2.imshow("ZynqMP 1920x1080 RGB", blank)
         key = cv2.waitKey(30) & 0xFF

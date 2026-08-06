@@ -139,7 +139,7 @@ Current Bit A compiles ETH to **bilateral** (`ETH_USE_CLAHE=0`), not CLAHE.
 
 1. **Re-burn Bit A** (`fix_dma_length_and_build.tcl` → sync → build → program)  
 2. **Confirm UART** shows continuous `[ETH] sent frame N` (not only `bad frame header`)  
-3. **On local Windows desktop** (not remote SSH): run `setup_ps_eth_motorcomm.ps1`, then `recv_display.py`  
+3. **On local Windows desktop** (not remote SSH): run `setup_ps_eth.ps1`, then `recv_display.py`  
 4. **Quick UDP check:** `udp_test.py` should report packets within 10 s while board is streaming  
 5. **RTL:** set `ETH_USE_CLAHE=1`, remove bilateral bypass mux; resynthesize  
 6. **Debug frame header:** align `clahe_sof` / `frame_eth_tx` SOF with DMA TLAST boundaries  

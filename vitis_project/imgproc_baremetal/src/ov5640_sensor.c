@@ -213,23 +213,16 @@ struct reginfo cfg_1080p_30fps[] =
 		//[6:4]=001 PLL charge pump, [3:0]=1010 MIPI 10-bit mode
 		{0x3034, 0x1A},
 
-		//[3:0]=0 X address start high byte
-		{0x3800, (336 >> 8) & 0x0F},
-		//[7:0]=0 X address start low byte
-		{0x3801, 336 & 0xFF},
-		//[2:0]=0 Y address start high byte
-		{0x3802, (426 >> 8) & 0x07},
-		//[7:0]=0 Y address start low byte
-		{0x3803, 426 & 0xFF},
+		/* N12 S3: Bayer phase via BAYER_X_OFF / BAYER_Y_OFF */
+		{0x3800, ((336 + BAYER_X_OFF) >> 8) & 0x0F},
+		{0x3801, (336 + BAYER_X_OFF) & 0xFF},
+		{0x3802, ((426 + BAYER_Y_OFF) >> 8) & 0x07},
+		{0x3803, (426 + BAYER_Y_OFF) & 0xFF},
 
-		//[3:0] X address end high byte
-		{0x3804, (2287 >> 8) & 0x0F},
-		//[7:0] X address end low byte
-		{0x3805, 2287 & 0xFF},
-		//[2:0] Y address end high byte
-		{0x3806, (1529 >> 8) & 0x07},
-		//[7:0] Y address end low byte
-		{0x3807, 1529 & 0xFF},
+		{0x3804, ((2287 + BAYER_X_OFF) >> 8) & 0x0F},
+		{0x3805, (2287 + BAYER_X_OFF) & 0xFF},
+		{0x3806, ((1529 + BAYER_Y_OFF) >> 8) & 0x07},
+		{0x3807, (1529 + BAYER_Y_OFF) & 0xFF},
 
 		//[3:0]=0 timing hoffset high byte
 		{0x3810, (16 >> 8) & 0x0F},
@@ -367,7 +360,171 @@ int Ov5640_SensorInit(void)
 	sensor_write_array(cfg_advanced_awb);
 	ov5640_write(0x3008U, 0x02U);
 
+	/* N16: dump timing window / output size / HTS / binning for stride debug */
+	{
+		u8 b[16];
+		u16 x0, x1, y0, y1, ow, oh, hts, vts;
+		u32 i;
+
+		for (i = 0U; i < 16U; i++) {
+			if (ov5640_read((u16)(0x3800U + i), &b[i]) != XST_SUCCESS)
+				b[i] = 0xFFU;
+		}
+		x0 = (u16)(((u16)(b[0] & 0x0FU) << 8) | b[1]);
+		y0 = (u16)(((u16)(b[2] & 0x07U) << 8) | b[3]);
+		x1 = (u16)(((u16)(b[4] & 0x0FU) << 8) | b[5]);
+		y1 = (u16)(((u16)(b[6] & 0x07U) << 8) | b[7]);
+		ow = (u16)(((u16)(b[8] & 0x0FU) << 8) | b[9]);
+		oh = (u16)(((u16)(b[10] & 0x7FU) << 8) | b[11]);
+		hts = (u16)(((u16)(b[12] & 0x1FU) << 8) | b[13]);
+		vts = (u16)(((u16)b[14] << 8) | b[15]);
+		xil_printf("OV5640 win x=%u..%u (W=%u) y=%u..%u (H=%u)\r\n",
+			   (unsigned)x0, (unsigned)x1,
+			   (unsigned)(x1 - x0 + 1U),
+			   (unsigned)y0, (unsigned)y1,
+			   (unsigned)(y1 - y0 + 1U));
+		xil_printf("OV5640 out=%ux%u HTS=%u VTS=%u\r\n",
+			   (unsigned)ow, (unsigned)oh,
+			   (unsigned)hts, (unsigned)vts);
+		if (ov5640_read(0x3814U, &b[0]) == XST_SUCCESS &&
+		    ov5640_read(0x3815U, &b[1]) == XST_SUCCESS)
+			xil_printf("OV5640 bin 3814=0x%02X 3815=0x%02X "
+				   "BAYER_OFF x=%d y=%d\r\n",
+				   b[0], b[1],
+				   (int)BAYER_X_OFF, (int)BAYER_Y_OFF);
+	}
+
 	xil_printf("OV5640 sensor_init done (ALINX 24_an5641 table)\r\n");
 	return XST_SUCCESS;
+}
+
+int Ov5640_SetAutoExposure(int enable)
+{
+	u8 v = 0U;
+
+	if (ov5640_read(0x3503U, &v) != XST_SUCCESS)
+		return XST_FAILURE;
+	if (enable)
+		v &= (u8)~0x07U; /* AEC/AGC/VTS auto */
+	else
+		v |= 0x07U; /* manual AEC+AGC+VTS */
+	if (ov5640_write(0x3503U, v) != XST_SUCCESS)
+		return XST_FAILURE;
+	xil_printf("[OV5640] AEC/AGC %s (3503=0x%02X)\r\n",
+		   enable ? "auto" : "manual", v);
+	return XST_SUCCESS;
+}
+
+int Ov5640_SetManualExposure(u32 exposure_lines, u16 gain_q4_4)
+{
+	/* exposure_lines in whole lines; sensor wants 1/16-line units.
+	 * N22: exposure must stay below VTS; extend VTS when needed (was
+	 * writing 2000 with VTS=1120 → darker than AEC). */
+	u32 exp16;
+	u32 vts;
+	u8 g_hi, g_lo;
+	u8 vts_hi = 0U, vts_lo = 0U;
+
+	if (Ov5640_SetAutoExposure(0) != XST_SUCCESS)
+		return XST_FAILURE;
+	if (exposure_lines < 1U)
+		exposure_lines = 1U;
+	if (exposure_lines > 0xFFFFU)
+		exposure_lines = 0xFFFFU;
+
+	if (ov5640_read(0x380EU, &vts_hi) != XST_SUCCESS ||
+	    ov5640_read(0x380FU, &vts_lo) != XST_SUCCESS)
+		return XST_FAILURE;
+	vts = ((u32)vts_hi << 8) | (u32)vts_lo;
+	if (vts < 8U)
+		vts = 1120U;
+	if (exposure_lines + 4U >= vts) {
+		vts = exposure_lines + 20U;
+		if (vts > 0xFFFFU)
+			vts = 0xFFFFU;
+		if (ov5640_write(0x380EU, (u8)((vts >> 8) & 0xFFU)) != XST_SUCCESS ||
+		    ov5640_write(0x380FU, (u8)(vts & 0xFFU)) != XST_SUCCESS)
+			return XST_FAILURE;
+	}
+
+	exp16 = exposure_lines << 4; /* *16 */
+	if (exp16 > 0xFFFFFU)
+		exp16 = 0xFFFFFU;
+	if (gain_q4_4 < 0x10U)
+		gain_q4_4 = 0x10U; /* 1.0x */
+	if (gain_q4_4 > 0x3FFU)
+		gain_q4_4 = 0x3FFU;
+
+	ov5640_write(0x3500U, (u8)((exp16 >> 16) & 0x0FU));
+	ov5640_write(0x3501U, (u8)((exp16 >> 8) & 0xFFU));
+	ov5640_write(0x3502U, (u8)(exp16 & 0xFFU));
+	g_hi = (u8)((gain_q4_4 >> 8) & 0x03U);
+	g_lo = (u8)(gain_q4_4 & 0xFFU);
+	ov5640_write(0x350AU, g_hi);
+	ov5640_write(0x350BU, g_lo);
+	xil_printf("[OV5640] manual exp_lines=%u gain=0x%03X VTS=%u\r\n",
+		   (unsigned)exposure_lines, (unsigned)gain_q4_4,
+		   (unsigned)vts);
+	return XST_SUCCESS;
+}
+
+int Ov5640_SetTestPattern(int enable)
+{
+	u8 v = enable ? 0x80U : 0x00U; /* ALINX: color bar */
+
+	if (ov5640_write(0x503DU, v) != XST_SUCCESS)
+		return XST_FAILURE;
+	xil_printf("[OV5640] test_pattern 503D=0x%02X\r\n", v);
+	return XST_SUCCESS;
+}
+
+int Ov5640_DumpTiming(void)
+{
+	u8 b[16];
+	u16 w, h, hts, vts, xs, xe, ys, ye;
+
+	if (ov5640_read(0x3800U, &b[0]) != XST_SUCCESS)
+		return XST_FAILURE;
+	(void)ov5640_read(0x3801U, &b[1]);
+	(void)ov5640_read(0x3802U, &b[2]);
+	(void)ov5640_read(0x3803U, &b[3]);
+	(void)ov5640_read(0x3804U, &b[4]);
+	(void)ov5640_read(0x3805U, &b[5]);
+	(void)ov5640_read(0x3806U, &b[6]);
+	(void)ov5640_read(0x3807U, &b[7]);
+	(void)ov5640_read(0x3808U, &b[8]);
+	(void)ov5640_read(0x3809U, &b[9]);
+	(void)ov5640_read(0x380AU, &b[10]);
+	(void)ov5640_read(0x380BU, &b[11]);
+	(void)ov5640_read(0x380CU, &b[12]);
+	(void)ov5640_read(0x380DU, &b[13]);
+	(void)ov5640_read(0x380EU, &b[14]);
+	(void)ov5640_read(0x380FU, &b[15]);
+	xs = (u16)(((u16)(b[0] & 0x0FU) << 8) | b[1]);
+	ys = (u16)(((u16)(b[2] & 0x07U) << 8) | b[3]);
+	xe = (u16)(((u16)(b[4] & 0x0FU) << 8) | b[5]);
+	ye = (u16)(((u16)(b[6] & 0x07U) << 8) | b[7]);
+	w = (u16)(((u16)(b[8] & 0x0FU) << 8) | b[9]);
+	h = (u16)(((u16)(b[10] & 0x7FU) << 8) | b[11]);
+	hts = (u16)(((u16)(b[12] & 0x1FU) << 8) | b[13]);
+	vts = (u16)(((u16)b[14] << 8) | b[15]);
+	xil_printf("[OV5640] win x=%u..%u y=%u..%u out=%ux%u HTS=%u VTS=%u\r\n",
+		   (unsigned)xs, (unsigned)xe, (unsigned)ys, (unsigned)ye,
+		   (unsigned)w, (unsigned)h, (unsigned)hts, (unsigned)vts);
+	return XST_SUCCESS;
+}
+
+int Ov5640_SetOutputSize(u16 width, u16 height)
+{
+	if (width < 16U || height < 16U)
+		return XST_FAILURE;
+	if (ov5640_write(0x3808U, (u8)((width >> 8) & 0x0FU)) != XST_SUCCESS ||
+	    ov5640_write(0x3809U, (u8)(width & 0xFFU)) != XST_SUCCESS ||
+	    ov5640_write(0x380AU, (u8)((height >> 8) & 0x7FU)) != XST_SUCCESS ||
+	    ov5640_write(0x380BU, (u8)(height & 0xFFU)) != XST_SUCCESS)
+		return XST_FAILURE;
+	xil_printf("[OV5640] set out=%ux%u\r\n",
+		   (unsigned)width, (unsigned)height);
+	return Ov5640_DumpTiming();
 }
 

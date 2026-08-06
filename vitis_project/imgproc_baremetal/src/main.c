@@ -53,6 +53,8 @@ int main(void)
 	PlIsp_DumpStatus();
 	if (cam_ok) {
 		xil_printf("[MAIN] camera_ok=1 (PL source from RTL ISP_USE_TEST_RAW, no PS 0x08 write)\r\n");
+		/* N25b: AEC for real-scene brightness (manual ladder too coarse) */
+		(void)Ov5640_SetAutoExposure(1);
 	} else {
 		xil_printf("[MAIN] camera_ok=0, PL ISP test_raw->clahe (bitstream default)\r\n");
 	}

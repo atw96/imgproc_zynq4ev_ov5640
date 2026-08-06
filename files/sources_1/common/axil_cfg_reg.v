@@ -93,36 +93,36 @@ reg                 aw_addr_vld;   // 写地址已接收
 // ─────────────────────────────────────────────
 // [see README for description]
 // ─────────────────────────────────────────────
+/* N12 fix: never assert wready until AW is latched. Old code kept wready=1
+ * after reset; W-before-AW completed without bvalid → PS Xil_Out32 hang. */
 always @(posedge aclk) begin
     if (!aresetn) begin
         s_axil_awready <= 1'b1;
-        s_axil_wready  <= 1'b1;
+        s_axil_wready  <= 1'b0;
         s_axil_bvalid  <= 1'b0;
         s_axil_bresp   <= 2'b00;
         aw_addr_vld    <= 1'b0;
         wreg_wr_o      <= {NUM_WR_REGS{1'b0}};
+        wreg_o         <= {(32*NUM_WR_REGS){1'b0}};
     end else begin
-        wreg_wr_o <= {NUM_WR_REGS{1'b0}};  // 默认清零（单拍脉冲）
+        wreg_wr_o <= {NUM_WR_REGS{1'b0}};
 
-        // [see README for description]
         if (s_axil_awvalid && s_axil_awready) begin
             aw_addr_lat    <= s_axil_awaddr;
             aw_addr_vld    <= 1'b1;
             s_axil_awready <= 1'b0;
+            s_axil_wready  <= 1'b1;
         end
 
-        // [see README for description]
         if (s_axil_wvalid && s_axil_wready && aw_addr_vld) begin
             s_axil_wready  <= 1'b0;
             s_axil_awready <= 1'b0;
             aw_addr_vld    <= 1'b0;
 
-            // [see README for description]
             begin : do_write
                 integer idx;
-                idx = aw_addr_lat[ADDR_BITS-1:2];  // 去掉低2位（字节对齐）
+                idx = aw_addr_lat[ADDR_BITS-1:2];
                 if (idx < NUM_WR_REGS) begin
-                    // [see README for description]
                     if (s_axil_wstrb[0]) wreg_o[idx*32+0  +: 8] <= s_axil_wdata[7:0];
                     if (s_axil_wstrb[1]) wreg_o[idx*32+8  +: 8] <= s_axil_wdata[15:8];
                     if (s_axil_wstrb[2]) wreg_o[idx*32+16 +: 8] <= s_axil_wdata[23:16];
@@ -132,14 +132,13 @@ always @(posedge aclk) begin
             end
 
             s_axil_bvalid  <= 1'b1;
-            s_axil_bresp   <= 2'b00;  // OKAY
+            s_axil_bresp   <= 2'b00;
         end
 
-        // [see README for description]
         if (s_axil_bvalid && s_axil_bready) begin
             s_axil_bvalid  <= 1'b0;
             s_axil_awready <= 1'b1;
-            s_axil_wready  <= 1'b1;
+            s_axil_wready  <= 1'b0;
         end
     end
 end

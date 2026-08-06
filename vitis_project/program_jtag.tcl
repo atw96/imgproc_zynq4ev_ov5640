@@ -73,7 +73,7 @@ proc ensure_psu {ms} {
     return 0
 }
 
-set ::HW_SERVER_URL "TCP:127.0.0.1:10245"
+set ::HW_SERVER_URL "TCP:127.0.0.1:12000"
 step {=== JTAG HOT: psu_init -> fpga -> halt A53 -> dow ===}
 catch {disconnect}
 after 2000

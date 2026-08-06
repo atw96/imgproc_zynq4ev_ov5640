@@ -60,9 +60,10 @@ module frame_eth_tx #(
     reg [21:0] gap_cnt;
     reg [20:0] in_pix_idx;
 
-    wire [7:0] r8 = s_pix_r[11:4];
-    wire [7:0] g8 = s_pix_g[11:4];
-    wire [7:0] b8 = s_pix_b[11:4];
+    /* N12: use [12:5] (MSBs) — matches HDMI; [11:4] halved range + wrap on bright */
+    wire [7:0] r8 = s_pix_r[12:5];
+    wire [7:0] g8 = s_pix_g[12:5];
+    wire [7:0] b8 = s_pix_b[12:5];
 
     wire frame_start = s_pix_valid && s_pix_sof;
     wire axis_fire   = m_axis_tvalid && m_axis_tready;

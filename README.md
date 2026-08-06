@@ -14,16 +14,18 @@
 
 - **Ethernet transport** is verified working end-to-end (PL `frame_eth_tx` → AXI DMA S2MM → PS DDR → lwIP UDP → PC receiver `recv_display.py` / `save_udp_frame.py`). UART shows continuous `sent frame N` for the configured UDP destination and the PC PNG snapshots save successfully.
 - **Bit A geometry** (synthetic test pattern path, `ETH_FORCE_RAMP=1`) has been self-checked: 12-frame cross-correlation reports `shift=0, corr=1.0`, and with firmware-side `ETH_HWRAP_ROT_PIX=449` the ramp pattern aligns. The rotation constant is Bit-A-specific and only used at bring-up.
-- **Bit B live MIPI path** (`ISP_USE_TEST_RAW=0`, `ETH_USE_CLAHE=0`, ETH tap = bilateral output) streams to PC but a **periodic 4-pixel vertical stripe** artifact remains on the captured frames; back-pressure counters (`skid_ovf`) can saturate without the DDR3-with-pause buffer path. Root cause is being tracked as a `fifo_sync` FWFT read-side replay issue (N11 series) — RTL fix committed but awaiting re-synthesis / on-board verification.
+- **Bit B color ISP (N25)**: the PL demosaic in `img_preprocessor.v` was rebuilt on a 3-column window `{c-2,c-1,c}` (center at `c-1`) — previously the 2-column `{c-1,c}` window let the center pixel leak into WE/cross/diag interpolation and collapsed colorbar G/Mg bars to gray. Sensor RAW phase is now runtime-configurable via `r_dbg[4:3]` (`PlIsp_SetBayerPhase()`, UART `'b'` cycles 0..3 without re-synthesis). OV5640 colorbar RAW is **BGGR**, not GRBG; default `bayer_phase=3` scores 8/8 on the colorbar sweep. Scene acceptance: `wr_drop=0`, scene mean ~95, wall RGB balance ~1.5%.
+- **Bit B stability**: back-pressure counter `skid_ovf` saturates without the DDR3-with-pause buffer path; the `fifo_sync` FWFT sticky-vld root cause (N11) has been patched in RTL (`fifo_sync.v` clears `fwft_vld` on empty; `ddr3_pixel_buf.v` adds `rd_pending`).
 - **CLAHE output mux**: Bit A ships with `ETH_USE_CLAHE=0` (ETH taps bilateral instead of CLAHE) because of a now-fixed `clahe_engine` MAP-phase replay defect; HDMI still uses the CLAHE output.
 
 ## Features
 
 - **MIPI CSI-2 capture**: RAW10 from OV5640 via MIPI CSI-2 RX Subsystem.
-- **ISP preprocessing**: defective-pixel handling, black level, white balance, demosaic, gamma (13-bit Q-format LUT, see `img_preprocessor.v` + `gamma22_13b.mem`).
+- **ISP preprocessing**: defective-pixel handling, black level, white balance, **3-column Bayer demosaic** (`img_preprocessor.v`), gamma (13-bit Q-format LUT, see `gamma22_13b.mem`). Bayer phase selectable at runtime via `r_dbg[4:3]`.
 - **Enhancement**: 11×11 local detail enhancement, 5×5 bilateral filter, CLAHE; per-build mux via `ETH_USE_CLAHE` generic.
 - **PS DDR buffering**: AXI HP masters for display path and line-buffer path (ping-pong style usage in `ddr3_pixel_buf` / `zynq_display_ctrl` — module names retain “ddr3” legacy naming).
 - **ETH source mux**: `ETH_FROM_DDR3` (bilateral→DDR3→ETH, with back-pressure via `rd_stall←pause_src`) or default AXIS tap of ISP output.
+- **Runtime debug mux**: `r_dbg` register at offset `0x28` selects the DDR debug source in bits `[0:1]` and Bayer phase in `[4:3]`; helper API `PlIsp_SetBayerPhase()` / `PlIsp_SetDbgSrc()` in `pl_isp.c` and UART `'b'` let you sweep phases without re-synthesis.
 - **HDMI display**: 1080p60 grayscale via **ADV7511** (148.5 MHz pixel clock from BD MMCM).
 - **Ethernet frame streaming**: PL `frame_eth_tx` produces an AXI-Stream byte stream → **AXI DMA S2MM** → PS DDR; optional **LwIP RAW/UDP** path in `eth_stream.c` (requires matching BSP symbols).
 - **Optional H-wrap rotation**: `ETH_HWRAP_ROT_PIX` lets firmware rotate the first N pixels per row to compensate for a known SOF/line-start offset (Bit A baseline = 449). Off (0) by default; only enable when the bitstream has been characterised for the rotation constant.
@@ -183,9 +185,13 @@ See [vitis_project/JTAG.md](vitis_project/JTAG.md) for detailed JTAG flow do's a
 - Initializes board peripherals: **AXI IIC** (camera control), **OV5640 minimal register setup**, **PS clocking**.
 - Calls `eth_stream_main()` — implements **AXI DMA S2MM** capture path:
   - Configures **DMA** to receive frames from PL `frame_eth_tx` AXIS stream.
-  - Formats frames into **8-byte header + 1920×1080 luma** per DMA descriptor.
+  - Formats frames into **12-byte header + 1920×1080** pixels per DMA descriptor (recent build uses RGBX 4-byte pixels).
   - Sends **UDP packets** to host PC (default destination: `"<pc_ip>:<pc_udp_port>"`; confirm actual values in `eth_stream.c` and `tools/README_udp.md`).
 - Falls back gracefully if **lwIP** or **DMA** not available (prints diagnostic messages).
+- Runtime UART console (see `pl_isp.c` / `main.c`):
+  - `'s'` print PL status regs (raw/mipi_beat/clahe/fifo_ovf/wr_lines/csi_line/wr_drop),
+  - `'b'` cycle Bayer phase `0..3` via `PlIsp_SetBayerPhase()` (no re-synthesis needed after N25),
+  - `'d'` cycle DDR debug source via `PlIsp_SetDbgSrc()`.
 
 ### BSP & conditional compilation
 
@@ -232,6 +238,7 @@ Exact names may vary slightly per BD revision; always cross-check **`xparameters
 | `0x01C` | `r_gamma_wr` | `[20:13]` addr, `[12:0]` data | Gamma LUT write |
 | `0x020` | `r_ddr3_base` | `[31:0]` | Line-buffer DDR base |
 | `0x024` | `r_sy_lut` | `[22:13]` addr, `[12:0]` data | Detail-enhancement LUT write |
+| `0x028` | `r_dbg` | `[1:0]` DDR debug src, `[4:3]` `bayer_phase` | Runtime debug mux + Bayer phase select (N18/N25) |
 | `0x200` | `status[0]` | `[31:0]` | Dead-pixel count (design-dependent packing) |
 | `0x204` | `status[1]` | `[0]` | Buffer select / status bit |
 

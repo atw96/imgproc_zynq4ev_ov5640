@@ -44,12 +44,15 @@ module imgproc_top_ov5640 #(
     parameter IMG_W    = 1920,
     parameter IMG_H    = 1080,
     /* Compile-time ISP/ETH mux (Vivado generic override for MIPI bit) */
-    parameter ISP_USE_TEST_RAW = 1'b1,
+    /* N20: default 0 so dbg_src=1 is real MIPI; pattern via r_dbg=2 / bit2 */
+    parameter ISP_USE_TEST_RAW = 1'b0,
     parameter ETH_USE_CLAHE    = 1'b1,
     /* n7r: 1 = eth emits sof-locked ramp (bypass ISP pixels) for N8 path check */
     parameter ETH_FORCE_RAMP   = 1'b0,
     /* PLAN_v3 N9b: ETH from ddr3_pixel_buf readout (gray RGBX); write side=bilat_Y */
-    parameter ETH_FROM_DDR3    = 1'b0
+    parameter ETH_FROM_DDR3    = 1'b0,
+    /* N11e: ddr3 readout = local ramp (skip HP1) for ETH bring-up */
+    parameter DDR3_FORCE_RAMP  = 1'b0
 )(
     // -------------------------------------------------------------------------
     // ?????PACKAGE_PIN / IOSTANDARD ??XDC??
@@ -288,11 +291,15 @@ module imgproc_top_ov5640 #(
         .S_AXI_HP0_bvalid   (m_axi_hp0_bvalid),
         .S_AXI_HP0_bready   (m_axi_hp0_bready),
 
-        // AXI4 HP1 Slave?DDR ????
+        // AXI4 HP1 -> DDR (N11d: drive cache/prot/lock/qos; were left open)
         .S_AXI_HP1_awaddr   (m_axi_hp1_awaddr),
         .S_AXI_HP1_awlen    (m_axi_hp1_awlen),
         .S_AXI_HP1_awsize   (m_axi_hp1_awsize),
         .S_AXI_HP1_awburst  (m_axi_hp1_awburst),
+        .S_AXI_HP1_awcache  (4'b0011),
+        .S_AXI_HP1_awprot   (3'b000),
+        .S_AXI_HP1_awlock   (1'b0),
+        .S_AXI_HP1_awqos    (4'b0000),
         .S_AXI_HP1_awvalid  (m_axi_hp1_awvalid),
         .S_AXI_HP1_awready  (m_axi_hp1_awready),
         .S_AXI_HP1_wdata    (m_axi_hp1_wdata),
@@ -307,6 +314,10 @@ module imgproc_top_ov5640 #(
         .S_AXI_HP1_arlen    (m_axi_hp1_arlen),
         .S_AXI_HP1_arsize   (m_axi_hp1_arsize),
         .S_AXI_HP1_arburst  (m_axi_hp1_arburst),
+        .S_AXI_HP1_arcache  (4'b0011),
+        .S_AXI_HP1_arprot   (3'b000),
+        .S_AXI_HP1_arlock   (1'b0),
+        .S_AXI_HP1_arqos    (4'b0000),
         .S_AXI_HP1_arvalid  (m_axi_hp1_arvalid),
         .S_AXI_HP1_arready  (m_axi_hp1_arready),
         .S_AXI_HP1_rdata    (m_axi_hp1_rdata),
@@ -335,8 +346,10 @@ module imgproc_top_ov5640 #(
     // =========================================================================
     // D. AXI4-Lite ??????(axil_cfg_reg)
     // =========================================================================
-    localparam NUM_WR_REGS = 10;
-    localparam NUM_RD_REGS = 7;
+    /* N18: +r_dbg@0x28; +sensor_if / preproc / wr_lines status @0x220+
+     * N23: +wr_drop_cnt @0x230 */
+    localparam NUM_WR_REGS = 12;
+    localparam NUM_RD_REGS = 13;
     localparam integer ETH_FRAME_PIX = IMG_W * IMG_H;
 
     wire [NUM_WR_REGS*32-1:0] cfg_wreg;
@@ -387,6 +400,20 @@ module imgproc_top_ov5640 #(
     /* PS never writes CFG safely; default FB away from low DDR (code/bss/DMA). */
     wire [31:0] ddr3_base_addr = (|r_ddr3_base) ? r_ddr3_base : 32'h6000_0000;
     wire [31:0] r_sy_lut      = cfg_wreg[9*32 +: 32];
+    /* N18: r_dbg @ 0x28 — do NOT use r_ctrl@0x08 (PS write hang).
+     * [1:0] DDR wr src: 0=bilat 1=MIPI RAW gray 2=pat gray 3=preproc RGB
+     * [2]   force isp_src_test (pattern into ISP); auto-set when src==2
+     * N23: before first PS write, default src=MIPI so boot does not desync FB */
+    wire [31:0] r_dbg         = cfg_wreg[10*32 +: 32];
+    reg         dbg_ps_written;
+    always @(posedge pl_clk or negedge rst_n) begin
+        if (!rst_n)
+            dbg_ps_written <= 1'b0;
+        else if (cfg_wreg_wr[10])
+            dbg_ps_written <= 1'b1;
+    end
+    wire [1:0]  dbg_ddr_src   = dbg_ps_written ? r_dbg[1:0] : 2'd1;
+    wire        dbg_force_pat = r_dbg[2] | (dbg_ddr_src == 2'd2);
     /* n7o: capture_en tied high; gating = tready rising-edge arm in frame_eth_tx */
     wire        eth_capture_en = 1'b1;
 
@@ -396,8 +423,9 @@ module imgproc_top_ov5640 #(
     wire [1:0]  res_sel       = (|r_ctrl[2:1]) ? r_ctrl[2:1] : 2'b01;
     /* r_ctrl[8]=legacy ETH test_pat bypass; [9]=ISP test RAW; [10]=ETH from CLAHE */
     wire        test_pat_en    = r_ctrl[8];
-    wire        isp_src_test   = ((r_ctrl & 32'h00000600) == 32'h0) ?
-                                  ISP_USE_TEST_RAW : r_ctrl[9];
+    wire        isp_src_test   = dbg_force_pat ? 1'b1 :
+                                 (((r_ctrl & 32'h00000600) == 32'h0) ?
+                                  ISP_USE_TEST_RAW : r_ctrl[9]);
     wire        eth_from_clahe = ((r_ctrl & 32'h00000600) == 32'h0) ?
                                   ETH_USE_CLAHE : r_ctrl[10];
     wire        gamma_lut_we  = cfg_wreg_wr[7];
@@ -421,6 +449,12 @@ module imgproc_top_ov5640 #(
     wire               mipi_raw_valid;
     wire               mipi_raw_hsync;
     wire               mipi_raw_vsync;
+    wire [1:0]         si_bayer_phase;
+    wire [15:0]        si_frame_width;
+    wire [15:0]        si_csi_line_px;
+    wire [15:0]        si_frame_height;
+    wire [31:0]        si_frame_cnt;
+    wire               si_locked;
 
     wire [PIXEL_W-1:0] pat_raw_data;
     wire               pat_raw_valid;
@@ -428,13 +462,16 @@ module imgproc_top_ov5640 #(
     wire               pat_raw_vsync;
     wire               pat_raw_ready;
     wire               clahe_fifo_almost_full;
+    /* Declared early: sensor_if.dst_stall + pat backpressure (driven by ddr3 buf) */
+    wire               ddr3_wr_fifo_full;
+    wire               ddr3_wr_fifo_prog_full;
 
     sensor_if #(
         .RAW_W     (RAW_W),
         .PIXEL_W   (PIXEL_W),
         .IMG_W     (IMG_W),
         .IMG_H     (IMG_H),
-        .BAYER_FMT (0),        // RGGB (OV5640 ??)
+        .BAYER_FMT (1),        // N23: GRBG (colorbar Mg-R-B-K; was 0=RGGB)
         .VSYNC_POL (0),
         .HREF_POL  (0),
         .MIPI_MODE (1)         // MIPI CSI-2 ??
@@ -457,22 +494,29 @@ module imgproc_top_ov5640 #(
         .m_raw_valid (mipi_raw_valid),
         .m_raw_hsync (mipi_raw_hsync),
         .m_raw_vsync (mipi_raw_vsync),
-        .bayer_phase  (),
-        .frame_width  (),
-        .frame_height (),
-        .frame_cnt    (),
-        .locked       (),
+        .bayer_phase  (si_bayer_phase),
+        .frame_width  (si_frame_width),
+        .frame_height (si_frame_height),
+        .frame_cnt    (si_frame_cnt),
+        .locked       (si_locked),
         .mipi_beat_cnt (mipi_beat_cnt_w),
-        .mipi_pix_cnt  (mipi_pix_cnt_w)
+        .mipi_pix_cnt  (mipi_pix_cnt_w),
+        .csi_line_px   (si_csi_line_px),
+        /* N23: pause CSI when DDR wr FIFO almost full */
+        .dst_stall     (ddr3_wr_fifo_prog_full)
     );
 
-    assign pat_raw_ready = isp_src_test ? !eth_pause_src : 1'b1;  /* n7r: skid prog_full → pause pat */
+    /* N20: dbg src=2 must backpressure on DDR wr FIFO — ready=1 dropped pixels
+     * and destroyed geometry (observed period≈2048). Still ignore eth pause. */
+    assign pat_raw_ready = (dbg_ddr_src == 2'd2) ? !ddr3_wr_fifo_full :
+                           (isp_src_test ? !eth_pause_src : 1'b1);
 
     isp_raw_pat_gen #(
-        .RAW_W   (RAW_W),
-        .PIXEL_W (PIXEL_W),
-        .IMG_W   (IMG_W),
-        .IMG_H   (IMG_H)
+        .RAW_W         (RAW_W),
+        .PIXEL_W       (PIXEL_W),
+        .IMG_W         (IMG_W),
+        .IMG_H         (IMG_H),
+        .LINE_STRIDE_W (IMG_W)
     ) u_isp_pat (
         .clk          (pl_clk),
         .rst_n        (rst_n),
@@ -526,7 +570,8 @@ module imgproc_top_ov5640 #(
         .wb_gain_g      (r_wb_gain_g),
         .wb_gain_b      (r_wb_gain_b),
         .black_level    (r_black_level),
-        .bayer_fmt      (2'b00),
+        /* N25: runtime Bayer phase via r_dbg[4:3]; UART 'b' cycles 0..3 */
+        .bayer_fmt      (r_dbg[4:3]),
         .dead_pixel_cnt (dead_cnt_w_int)
     );
 
@@ -769,31 +814,105 @@ module imgproc_top_ov5640 #(
         .m_pix_sof    (clahe_sof)
     );
 
-    // K. DDR + AXI4 HP1
+    // K. DDR + AXI4 HP1 (N12: RGBX 4B/px; DISABLE_AXI_R for PS 2B read path)
     // =========================================================================
-    wire [PIXEL_W-1:0] disp_pix;
+    wire [7:0]         disp_r8, disp_g8, disp_b8;
     wire               disp_pix_valid;
+    wire               ddr3_wr_page;
     wire [31:0]        ddr3_wr_frame_cnt;
+    wire [31:0]        ddr3_axi_diag_cnt;
+    wire [15:0]        ddr3_measured_line_px;
+    wire [31:0]        ddr3_wr_drop_cnt;
 
-    /* N9b: when ETH taps ddr3, write bilat_Y (CLAHE path is starved on MIPI). */
-    wire [PIXEL_W-1:0] ddr3_wr_data  = ETH_FROM_DDR3 ? bilat_Y     : clahe_Y;
-    wire               ddr3_wr_valid = ETH_FROM_DDR3 ? bilat_valid : clahe_valid;
+    /* N18 dbg DDR wr mux (r_dbg[1:0]); default 0 = legacy bilat/CLAHE path */
+    wire [7:0] mipi_raw8 = mipi_raw_data[PIXEL_W-1 -: 8];
+    wire [7:0] pat_raw8  = pat_raw_data[PIXEL_W-1 -: 8];
+    wire [7:0] bilat_r8  = ETH_FROM_DDR3 ? bilat_R[12:5] : clahe_Y[12:5];
+    wire [7:0] bilat_g8  = ETH_FROM_DDR3 ? bilat_G[12:5] : clahe_Y[12:5];
+    wire [7:0] bilat_b8  = ETH_FROM_DDR3 ? bilat_B[12:5] : clahe_Y[12:5];
+    wire       bilat_v   = ETH_FROM_DDR3 ? bilat_valid : clahe_valid;
+    wire       bilat_s   = ETH_FROM_DDR3 ? bilat_sof   : clahe_sof;
+
+    wire [7:0] ddr3_wr_r = (dbg_ddr_src == 2'd1) ? mipi_raw8 :
+                           (dbg_ddr_src == 2'd2) ? pat_raw8  :
+                           (dbg_ddr_src == 2'd3) ? preproc_R[12:5] : bilat_r8;
+    wire [7:0] ddr3_wr_g = (dbg_ddr_src == 2'd1) ? mipi_raw8 :
+                           (dbg_ddr_src == 2'd2) ? pat_raw8  :
+                           (dbg_ddr_src == 2'd3) ? preproc_G[12:5] : bilat_g8;
+    wire [7:0] ddr3_wr_b = (dbg_ddr_src == 2'd1) ? mipi_raw8 :
+                           (dbg_ddr_src == 2'd2) ? pat_raw8  :
+                           (dbg_ddr_src == 2'd3) ? preproc_B[12:5] : bilat_b8;
+    wire       ddr3_wr_valid = (dbg_ddr_src == 2'd1) ? mipi_raw_valid :
+                               (dbg_ddr_src == 2'd2) ? pat_raw_valid  :
+                               (dbg_ddr_src == 2'd3) ? preproc_valid  : bilat_v;
+    wire       ddr3_wr_sof   = (dbg_ddr_src == 2'd1) ? (mipi_raw_valid & mipi_raw_vsync) :
+                               (dbg_ddr_src == 2'd2) ? (pat_raw_valid  & pat_raw_vsync)  :
+                               (dbg_ddr_src == 2'd3) ? preproc_sof : bilat_s;
+    wire       ddr3_wr_hsync = (dbg_ddr_src == 2'd1) ? mipi_raw_hsync :
+                               (dbg_ddr_src == 2'd2) ? pat_raw_hsync  :
+                               (dbg_ddr_src == 2'd3) ? preproc_hsync  : bilat_hsync_g;
+
+    /* N18: measure preproc line length + DDR-write lines/frame */
+    reg  [15:0] pre_line_cnt_r, pre_measured_line_r;
+    reg  [15:0] dbg_wr_line_cnt_r, dbg_wr_lines_frame_r;
+    always @(posedge pl_clk or negedge rst_n) begin
+        if (!rst_n) begin
+            pre_line_cnt_r      <= 16'd0;
+            pre_measured_line_r <= 16'd0;
+        end else if (preproc_valid) begin
+            if (preproc_hsync) begin
+                pre_measured_line_r <= pre_line_cnt_r;
+                pre_line_cnt_r      <= 16'd1;
+            end else begin
+                pre_line_cnt_r <= pre_line_cnt_r + 16'd1;
+            end
+        end
+    end
+    always @(posedge pl_clk or negedge rst_n) begin
+        if (!rst_n) begin
+            dbg_wr_line_cnt_r    <= 16'd0;
+            dbg_wr_lines_frame_r <= 16'd0;
+        end else if (ddr3_wr_valid && ddr3_wr_sof) begin
+            dbg_wr_lines_frame_r <= dbg_wr_line_cnt_r;
+            dbg_wr_line_cnt_r    <= 16'd1;
+        end else if (ddr3_wr_valid && ddr3_wr_hsync) begin
+            dbg_wr_line_cnt_r <= dbg_wr_line_cnt_r + 16'd1;
+        end
+    end
+
+    /* display_ctrl still takes PIXEL_W; feed R as luma proxy */
+    wire [PIXEL_W-1:0] disp_pix = {disp_r8, 5'b0};
 
     ddr3_pixel_buf #(
-        .PIXEL_W   (PIXEL_W),
-        .AXI_DW    (AXI_DW),
-        .AXI_AW    (AXI_AW),
-        .BURST_LEN (16),
-        .IMG_W     (IMG_W),
-        .IMG_H     (IMG_H)
+        .PIXEL_W        (PIXEL_W),
+        .AXI_DW         (AXI_DW),
+        .AXI_AW         (AXI_AW),
+        .BURST_LEN      (16),
+        .IMG_W          (IMG_W),
+        .IMG_H          (IMG_H),
+        /* N20: hsync crop to IMG_W; page = 1920*1080*4 */
+        .LINE_STRIDE_PX (IMG_W),
+        .DROP_EXTRA     (0),
+        .CROP_EN        (1),
+        .FORCE_RAMP_OUT (DDR3_FORCE_RAMP),
+        .DISABLE_AXI_R  (1),
+        /* N23: deep FIFO + outstanding writes */
+        .WR_FIFO_DEPTH  (2048),
+        .MAX_OUTSTANDING(8)
     ) u_ddr3_buf (
         .clk           (pl_clk),
         .rst_n         (rst_n),
-        .s_pix_data    (ddr3_wr_data),
+        .s_pix_r       (ddr3_wr_r),
+        .s_pix_g       (ddr3_wr_g),
+        .s_pix_b       (ddr3_wr_b),
         .s_pix_valid   (ddr3_wr_valid),
+        .s_pix_sof     (ddr3_wr_sof),
+        .s_pix_hsync   (ddr3_wr_hsync),
         .buf_base_addr (ddr3_base_addr),
         .rd_stall      (ETH_FROM_DDR3 ? eth_pause_src : 1'b0),
-        .m_pix_data    (disp_pix),
+        .m_pix_r       (disp_r8),
+        .m_pix_g       (disp_g8),
+        .m_pix_b       (disp_b8),
         .m_pix_valid   (disp_pix_valid),
         .m_axi_awaddr  (m_axi_hp1_awaddr),
         .m_axi_awlen   (m_axi_hp1_awlen),
@@ -820,10 +939,14 @@ module imgproc_top_ov5640 #(
         .m_axi_rvalid  (m_axi_hp1_rvalid),
         .m_axi_rlast   (m_axi_hp1_rlast),
         .m_axi_rready  (m_axi_hp1_rready),
-        .wr_page       (),
+        .wr_page       (ddr3_wr_page),
         .wr_frame_cnt  (ddr3_wr_frame_cnt),
-        .wr_fifo_full  (),
-        .rd_fifo_empty ()
+        .wr_fifo_full  (ddr3_wr_fifo_full),
+        .wr_fifo_prog_full (ddr3_wr_fifo_prog_full),
+        .rd_fifo_empty (),
+        .axi_diag_cnt  (ddr3_axi_diag_cnt),
+        .measured_line_px (ddr3_measured_line_px),
+        .wr_drop_cnt   (ddr3_wr_drop_cnt)
     );
 
     // =========================================================================
@@ -857,11 +980,13 @@ module imgproc_top_ov5640 #(
     end
     wire ddr3_rd_sof = disp_pix_valid && (ddr3_rd_pix_cnt == 21'd0);
 
-    wire [PIXEL_W-1:0] eth_r = ETH_FROM_DDR3 ? disp_pix :
+    /* N12: ETH_FROM_DDR3 taps RGB from ddr3 readout (2A); else bilat RGB / clahe gray.
+     * Reconstruct Q0.13 so frame_eth_tx [12:5] recovers the 8-bit value. */
+    wire [PIXEL_W-1:0] eth_r = ETH_FROM_DDR3 ? {disp_r8, 5'b0} :
                                (eth_from_clahe ? clahe_Y : bilat_R);
-    wire [PIXEL_W-1:0] eth_g = ETH_FROM_DDR3 ? disp_pix :
+    wire [PIXEL_W-1:0] eth_g = ETH_FROM_DDR3 ? {disp_g8, 5'b0} :
                                (eth_from_clahe ? clahe_Y : bilat_G);
-    wire [PIXEL_W-1:0] eth_b = ETH_FROM_DDR3 ? disp_pix :
+    wire [PIXEL_W-1:0] eth_b = ETH_FROM_DDR3 ? {disp_b8, 5'b0} :
                                (eth_from_clahe ? clahe_Y : bilat_B);
     wire               eth_pix_valid = ETH_FROM_DDR3 ? disp_pix_valid :
                                        (eth_from_clahe ? clahe_valid : bilat_valid);
@@ -962,10 +1087,23 @@ module imgproc_top_ov5640 #(
     // M. ???????
     // =========================================================================
     assign cfg_status = {
-        /* 0x218: N7 SOF diag {bilat,enh,col,pre} counts (CLAHE ovf unused on Bit A) */
-        sof_diag_w,
-        /* 0x214: clahe pix cnt; when ETH_FROM_DDR3 reuse as ddr3 wr_frame_cnt */
-        (ETH_FROM_DDR3 ? ddr3_wr_frame_cnt : clahe_pixel_cnt_r),
+        /* 0x230: N23 DDR packer drop count (must stay 0) */
+        ddr3_wr_drop_cnt,
+        /* 0x22C: N22 ungated CSI line length (px between tlast) */
+        {16'b0, si_csi_line_px},
+        /* 0x228: DDR wr lines latched at SOF {0, lines_per_frame} */
+        {16'b0, dbg_wr_lines_frame_r},
+        /* 0x224: [31]=locked [25:24]=bayer [15:0]=preproc_line_px */
+        {si_locked, 5'b0, si_bayer_phase, 8'b0, pre_measured_line_r},
+        /* 0x220: sensor_if {frame_height, frame_width} */
+        {si_frame_height, si_frame_width},
+        /* 0x21C: N16 measured input line length (px) before DDR crop */
+        {16'b0, ddr3_measured_line_px},
+        /* 0x218: SOF diag; ETH_FROM_DDR3 -> axi_diag {b_hs,w_hs,ar_hs,r_hs} */
+        (ETH_FROM_DDR3 ? ddr3_axi_diag_cnt : sof_diag_w),
+        /* 0x214: clahe pix; ETH_FROM_DDR3 -> {wr_page,15'b0,wr_frame[15:0]} */
+        (ETH_FROM_DDR3 ? {ddr3_wr_page, 15'b0, ddr3_wr_frame_cnt[15:0]}
+                       : clahe_pixel_cnt_r),
         raw_pixel_cnt_w,
         mipi_pix_cnt_w,
         mipi_beat_cnt_w,
@@ -975,13 +1113,8 @@ module imgproc_top_ov5640 #(
     };
 
     // =========================================================================
-    // N. HDMI????Y[12:5] -> RGB24 -> ADV7511
-    //    ADV7511??4-bit ?? RGB + ??
-    //    ???? R=G=B=luma8=vga_pixel_i[12:5]
-    //    pclk ?? hdmi_clk?ADV7511 ????
-    // =========================================================================
-    // pclk ???????? IOB/??????
-    // ????1 ????????????????
+    // N. HDMI: true color from display FB luma path still gray; when display
+    // is fed R-proxy only, keep R=G=B. Full RGB HDMI needs display_ctrl RGBX.
     wire [7:0] hdmi_luma_w = vga_pixel_i[PIXEL_W-1 -: 8];
 
     reg [23:0] hdmi_d_r;
@@ -994,6 +1127,7 @@ module imgproc_top_ov5640 #(
             hdmi_vsync_r <= 1'b0;
             hdmi_de_r    <= 1'b0;
         end else begin
+            /* R channel as luma proxy until display_ctrl stores RGBX */
             hdmi_d_r     <= {hdmi_luma_w, hdmi_luma_w, hdmi_luma_w};
             hdmi_hsync_r <= vga_hsync_i;
             hdmi_vsync_r <= vga_vsync_i;

@@ -11,10 +11,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 VITIS = ROOT / "vitis_project"
-HW_PORT = 10245
+HW_PORT = 12000  # Hyper-V excluded 10963-11062 (was 11000)
 VITIS_CANDIDATES = [
-    Path(r"D:\Xilinx\Vitis\2020.1"),
-    Path(r"C:\Xilinx\Vitis\2020.1"),
+    Path("C:/Xilinx/Vitis/2020.1"),
+    Path("D:/Xilinx/Vitis/2020.1"),
+    Path("E:/Xilinx/Vitis/2020.1"),
 ]
 FRAME_BYTES = 1920 * 1080 + 8
 

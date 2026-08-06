@@ -103,6 +103,8 @@ module sensor_if #(
     output wire                 mipi_tready,
     input  wire                 mipi_tlast,   // end of line
     input  wire                 mipi_tuser,   // start of frame (SOF)
+    /* N23: downstream DDR wr FIFO almost-full — pause CSI beats safely */
+    input  wire                 dst_stall,
 
     //=========================================================================
     // Output: internal Bayer pixel stream (to img_preprocessor)
@@ -121,7 +123,9 @@ module sensor_if #(
     output reg  [31:0]           frame_cnt,    // frames captured since reset
     output reg                   locked,       // 1 = stable video stream
     output reg  [31:0]           mipi_beat_cnt,
-    output reg  [31:0]           mipi_pix_cnt
+    output reg  [31:0]           mipi_pix_cnt,
+    /* N22: ungated CSI pixels between tlast (2*beats); diagnose vs IMG_W gate */
+    output reg  [15:0]           csi_line_px
 );
 
     //==========================================================================
@@ -131,6 +135,7 @@ module sensor_if #(
     wire             raw_in_valid;
     wire             raw_in_href;
     wire             raw_in_vsync;
+    wire             raw_in_hsync_pix; /* 1st accepted pixel of line */
 
     generate
         if (MIPI_MODE == 0) begin : g_dvp
@@ -152,43 +157,81 @@ module sensor_if #(
             assign raw_in_valid = dvp_href_r2;
             assign raw_in_href  = dvp_href_r2;
             assign raw_in_vsync = dvp_vs_r2;
+            assign raw_in_hsync_pix = 1'b0; /* DVP uses href_rise */
 
         end else begin : g_mipi
             reg [RAW_W-1:0] beat_p1;
             reg             has_p1;
-            reg             line_active;
             reg             pending_hsync;
             reg [RAW_W-1:0] out_pix;
             reg             out_valid;
             reg             out_href;
             reg             out_hsync;
             reg             out_vsync;
-            assign mipi_tready = ~has_p1;
+            /* N22b: emit full CSI line (no IMG_W gate); DDR crops to 1920.
+             * Keep line_href HIGH for whole line (gaps between 2PPC halves) —
+             * N22 pulsed href every valid → false href_fall, si_w junk, Bayer flip.
+             * csi_line_px = ungated pixels/tlast @ status 0x22C. */
+            reg [15:0]      emit_col;
+            reg [15:0]      csi_col;
+            reg             line_href;
+            assign mipi_tready = ~has_p1 & ~dst_stall;
             wire beat_fire = mipi_tvalid & mipi_tready;
+
             always @(posedge pclk) begin
                 if (!rst_n) begin
-                    has_p1 <= 1'b0; line_active <= 1'b0; pending_hsync <= 1'b0;
+                    has_p1 <= 1'b0; pending_hsync <= 1'b0;
                     out_valid <= 1'b0; out_hsync <= 1'b0; out_vsync <= 1'b0;
+                    out_href <= 1'b0; line_href <= 1'b0;
+                    emit_col <= 16'd0;
+                    csi_col  <= 16'd0;
+                    csi_line_px <= 16'd0;
                     mipi_beat_cnt <= 32'd0; mipi_pix_cnt <= 32'd0;
                 end else begin
                     out_valid <= 1'b0; out_hsync <= 1'b0; out_vsync <= 1'b0;
+
                     if (has_p1) begin
-                        out_pix <= beat_p1; out_valid <= 1'b1; out_href <= line_active;
-                        has_p1 <= 1'b0; mipi_pix_cnt <= mipi_pix_cnt + 32'd1;
+                        out_pix      <= beat_p1;
+                        out_valid    <= 1'b1;
+                        out_href     <= 1'b1;
+                        line_href    <= 1'b1;
+                        emit_col     <= emit_col + 16'd1;
+                        csi_col      <= csi_col + 16'd1;
+                        mipi_pix_cnt <= mipi_pix_cnt + 32'd1;
+                        has_p1 <= 1'b0;
                     end else if (beat_fire) begin
                         mipi_beat_cnt <= mipi_beat_cnt + 32'd1;
-                        if (mipi_tuser) begin line_active <= 1'b1; pending_hsync <= 1'b1; end
-                        out_pix <= mipi_tdata[RAW_W-1:0]; out_valid <= 1'b1;
-                        out_href <= line_active | mipi_tuser;
-                        out_hsync <= pending_hsync | mipi_tuser; out_vsync <= mipi_tuser;
-                        pending_hsync <= 1'b0; mipi_pix_cnt <= mipi_pix_cnt + 32'd1;
-                        beat_p1 <= mipi_tdata[RAW_W*2-1:RAW_W]; has_p1 <= 1'b1;
-                        if (mipi_tlast) begin line_active <= 1'b0; pending_hsync <= 1'b1; end
+                        out_pix      <= mipi_tdata[RAW_W-1:0];
+                        out_valid    <= 1'b1;
+                        out_href     <= 1'b1;
+                        line_href    <= 1'b1;
+                        out_hsync    <= pending_hsync | mipi_tuser;
+                        out_vsync    <= mipi_tuser;
+                        if (mipi_tuser || pending_hsync) begin
+                            emit_col <= 16'd1;
+                            csi_col  <= 16'd1;
+                            pending_hsync <= 1'b0;
+                        end else begin
+                            emit_col <= emit_col + 16'd1;
+                            csi_col  <= csi_col + 16'd1;
+                        end
+                        mipi_pix_cnt <= mipi_pix_cnt + 32'd1;
+                        if (mipi_tlast) begin
+                            csi_line_px   <= (mipi_tuser || pending_hsync
+                                              ? 16'd1 : csi_col + 16'd1) + 16'd1;
+                            pending_hsync <= 1'b1;
+                            line_href     <= 1'b0;
+                        end
+                        beat_p1 <= mipi_tdata[RAW_W*2-1:RAW_W];
+                        has_p1  <= 1'b1;
+                    end else begin
+                        out_href <= line_href;
                     end
                 end
             end
             assign raw_in = out_pix; assign raw_in_valid = out_valid;
             assign raw_in_href = out_href; assign raw_in_vsync = out_vsync;
+            assign raw_in_hsync_pix = out_hsync;
         end
     endgenerate
 
@@ -215,17 +258,24 @@ module sensor_if #(
         if (!rst_n) begin
             col_cnt <= 0;  row_cnt <= 0;
         end else begin
-            if (href_rise)  col_cnt <= 16'd1;   // start counting pixels
-            else if (raw_in_href) col_cnt <= col_cnt + 1;
-
-            if (href_fall) begin
-                col_max_r   <= col_cnt;         // latch line width
+            /* N19: count accepted valids; latch width on href_fall or next hsync */
+            if (raw_in_valid) begin
+                if (raw_in_hsync_pix || (MIPI_MODE == 0 && href_rise)) begin
+                    if (col_cnt != 16'd0) begin
+                        col_max_r   <= col_cnt;
+                        frame_width <= col_cnt;
+                    end
+                    col_cnt <= 16'd1;
+                    if (!vsync_d1 && !(raw_in_vsync))
+                        row_cnt <= row_cnt + 16'd1;
+                end else begin
+                    col_cnt <= col_cnt + 16'd1;
+                end
+            end else if (href_fall && col_cnt != 16'd0) begin
+                col_max_r   <= col_cnt;
                 frame_width <= col_cnt;
             end
 
-            if (href_rise && !vsync_d1) begin   // new line, not first
-                row_cnt <= row_cnt + 1;
-            end
             if (vsync_rise) begin
                 row_max_r    <= row_cnt;
                 frame_height <= row_cnt;
@@ -344,16 +394,22 @@ module sensor_if #(
             new_line_pending  <= 1'b0;
             new_frame_pending <= 1'b0;
         end else begin
-            if (href_rise)  new_line_pending  <= 1'b1;
+            /* N19b: MIPI uses explicit out_hsync; DVP uses href_rise */
+            if (MIPI_MODE != 0) begin
+                if (raw_in_hsync_pix) new_line_pending <= 1'b1;
+            end else if (href_rise) begin
+                new_line_pending <= 1'b1;
+            end
             if (vsync_rise) new_frame_pending <= 1'b1;
 
-            // Clear pending flags when the first pixel arrives
             if (raw_in_valid && new_line_pending)  new_line_pending  <= 1'b0;
             if (raw_in_valid && new_frame_pending) new_frame_pending <= 1'b0;
         end
     end
 
-    wire fire_hsync = raw_in_valid & new_line_pending;
+    /* MIPI: out_hsync already marks 1st accepted pixel — pass through */
+    wire fire_hsync = (MIPI_MODE != 0) ? (raw_in_valid & raw_in_hsync_pix)
+                                       : (raw_in_valid & new_line_pending);
     wire fire_vsync = raw_in_valid & new_frame_pending;
 
     //==========================================================================
@@ -376,7 +432,11 @@ module sensor_if #(
     generate
         if (MIPI_MODE == 0) begin : g_mipi_cnt_off
             always @(posedge pclk) begin
-                if (!rst_n) begin mipi_beat_cnt <= 32'd0; mipi_pix_cnt <= 32'd0; end
+                if (!rst_n) begin
+                    mipi_beat_cnt <= 32'd0;
+                    mipi_pix_cnt  <= 32'd0;
+                    csi_line_px   <= 16'd0;
+                end
             end
             assign mipi_tready = 1'b1;
         end

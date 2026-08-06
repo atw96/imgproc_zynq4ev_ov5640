@@ -46,7 +46,7 @@ module img_preprocessor #(
 );
 
     assign s_raw_ready = 1'b1;
-    wire _unused_bayer = |bayer_fmt;
+    /* N25: bayer_fmt[1]=row XOR, [0]=col XOR — runtime phase via r_dbg[4:3] */
 
     //==========================================================================
     // Row/Column parity tracker
@@ -59,6 +59,7 @@ module img_preprocessor #(
             row_par <= 0; col_par <= 0; col_cnt <= 0;
         end else if (s_raw_valid) begin
             if (s_raw_vsync) begin
+                /* N24d: GRBG row0col0=Gr; col_par starts 0 */
                 row_par <= 0; col_par <= 0; col_cnt <= 0;
             end else if (s_raw_hsync) begin
                 row_par <= ~row_par; col_par <= 0; col_cnt <= 0;
@@ -71,8 +72,9 @@ module img_preprocessor #(
     //==========================================================================
     // S1: Dead-Pixel Correction
     //==========================================================================
-    wire s1_dead = (s_raw_data == {PIXEL_W{1'b0}}) |
-                   (s_raw_data == {PIXEL_W{1'b1}});
+    /* N24c: disable stuck-pixel replace — OV5640 colorbar / deep shadows are
+     * legitimate 0 and were smeared into solid white (mean=255). */
+    wire s1_dead = 1'b0;
 
     reg [PIXEL_W-1:0] s1_prev;
     reg [PIXEL_W-1:0] s1_data;
@@ -159,18 +161,23 @@ module img_preprocessor #(
         .clk_w(clk),.we(lbm_vld),.waddr(lb_rcnt_d1),.wdata(lbm_rd),
         .clk_r(clk),.re(lb_re),.raddr(lb_rcnt),.rdata(lbo_rd),.rdata_vld(lbo_vld));
 
-    reg [1:0] rpar_sr, cpar_sr, valid_sr, hsync_sr;
+    reg [1:0] rpar_sr, cpar_sr, hsync_sr;
     reg [ADDR_W-1:0] col_sr0, col_sr1;
     reg [10:0]       row_sr0, row_sr1;
     /* vsync cannot share the short 2-tap SR of demosaic control:
-     * valid through 3 BRAMs is much later, so vsync_sr & valid_sr never overlap
-     * -> preproc SOF was permanently 0 and ETH relied on coordinate fake SOF. */
+     * SOF arrives on s2 before the demosaic window is ready, so park it
+     * until the first demosaic-valid beat consumes it. */
     reg vsync_pend;
+
+    /* N24: demosaic window at cycle T carries pixel from s2_valid(T-2);
+     * cpar/rpar/hsync/col/row are all +2. Old valid_sr[1] was +4 -> hsync
+     * fell into H-blank and `valid && hsync` never coincided downstream
+     * (line_px=41984=1920*1080 mod 65536, wr_lines=1). */
+    wire demo_vld = lbo_vld;
 
     always @(posedge clk) begin
         rpar_sr  <= {rpar_sr[0],  s2_rpar};
         cpar_sr  <= {cpar_sr[0],  s2_cpar};
-        valid_sr <= {valid_sr[0], lbo_vld};
         hsync_sr <= {hsync_sr[0], s2_hsync};
         col_sr0  <= s2_col;
         col_sr1  <= col_sr0;
@@ -185,66 +192,81 @@ module img_preprocessor #(
             vsync_pend <= 1'b1;
         // Same-cycle clear with Soft consume: NB uses current vsync_pend so
         // s3_vsync is a single-cycle pulse (do not wait for s3_vsync reg).
-        else if (vsync_pend && valid_sr[1])
+        else if (vsync_pend && demo_vld)
             vsync_pend <= 1'b0;
     end
 
+    /* N25: 3-column window {c-2, c-1, c}; centre at c-1 so east tap exists.
+     * Old 2-col window mixed centre into WE/cross/diag → G/Mg bars went grey. */
     reg [PIXEL_W-1:0] lbn_prev, lbm_prev, lbo_prev;
+    reg [PIXEL_W-1:0] lbn_prev2, lbm_prev2, lbo_prev2;
     always @(posedge clk) begin
         if (lbn_vld) begin
-            lbn_prev <= lbn_rd;
-            lbm_prev <= lbm_rd;
-            lbo_prev <= lbo_rd;
+            lbn_prev  <= lbn_rd;
+            lbm_prev  <= lbm_rd;
+            lbo_prev  <= lbo_rd;
+            lbn_prev2 <= lbn_prev;
+            lbm_prev2 <= lbm_prev;
+            lbo_prev2 <= lbo_prev;
         end
     end
 
-    // Replicate-pad: left edge (col==0 / hsync), top rows (row<2)
-    wire left_edge = hsync_sr[1] || (col_sr1 == {ADDR_W{1'b0}});
+    /* Replicate-pad: left two cols (centre at c-1) and top rows (row<2) */
+    wire left_edge = hsync_sr[1] || (col_sr1 <= {{(ADDR_W-1){1'b0}}, 1'b1});
     wire top_edge  = (row_sr1 < 11'd2);
 
-    wire [PIXEL_W-1:0] lbn_w = left_edge ? lbn_rd : lbn_prev;
-    wire [PIXEL_W-1:0] lbm_w = left_edge ? lbm_rd : lbm_prev;
-    wire [PIXEL_W-1:0] lbo_w = left_edge ? lbo_rd : lbo_prev;
+    /* Centre = (r-1, c-1) = lbm_prev; west=prev2, east=rd */
+    wire [PIXEL_W-1:0] cen   = lbm_prev;
+    wire [PIXEL_W-1:0] west  = left_edge ? lbm_prev : lbm_prev2;
+    wire [PIXEL_W-1:0] east  = lbm_rd;
+    wire [PIXEL_W-1:0] north = top_edge  ? lbm_prev : lbo_prev;
+    wire [PIXEL_W-1:0] south = lbn_prev;
+    wire [PIXEL_W-1:0] nw    = (left_edge || top_edge) ? north : lbo_prev2;
+    wire [PIXEL_W-1:0] ne    = top_edge  ? east  : lbo_rd;
+    wire [PIXEL_W-1:0] sw    = left_edge ? south : lbn_prev2;
+    wire [PIXEL_W-1:0] se    = lbn_rd;
 
-    wire [PIXEL_W-1:0] lbo_c = top_edge ? lbm_rd : lbo_rd;
-    wire [PIXEL_W-1:0] lbo_wp = top_edge ? lbm_w : lbo_w;
+    wire [PIXEL_W+1:0] avg_NS  = {2'b0, north} + {2'b0, south};
+    wire [PIXEL_W+1:0] avg_WE  = {2'b0, west}  + {2'b0, east};
+    wire [PIXEL_W+2:0] avg_diag  = {2'b0, nw} + {2'b0, ne} + {2'b0, sw} + {2'b0, se};
+    wire [PIXEL_W+2:0] avg_cross = {2'b0, north} + {2'b0, south}
+                                 + {2'b0, west}  + {2'b0, east};
 
-    wire [PIXEL_W+1:0] avg_NS     = {2'b0,lbo_c}   + {2'b0,lbn_rd};
-    wire [PIXEL_W+1:0] avg_WE_mid = {2'b0,lbm_w}   + {2'b0,lbm_rd};
-    wire [PIXEL_W+2:0] avg_diag   = {2'b0,lbo_wp}  + {2'b0,lbo_c}
-                                  + {2'b0,lbn_w}   + {2'b0,lbn_rd};
-    wire [PIXEL_W+2:0] avg_cross  = {2'b0,lbo_c}   + {2'b0,lbn_rd}
-                                  + {2'b0,lbm_w}   + {2'b0,lbm_rd};
+    /* Centre is one column behind write-side parity → XOR col; row XOR via fmt.
+     * N25b: OV5640 0x503D colorbar RAW is BGGR (R energy at odd,odd) — not GRBG.
+     * Runtime bayer_fmt still sweeps all 4 phases for real-scene lock. */
+    wire [1:0] bayer_sel = {rpar_sr[1] ^ bayer_fmt[1],
+                            cpar_sr[1] ^ bayer_fmt[0] ^ 1'b1};
 
     reg [PIXEL_W-1:0] s3_R, s3_G, s3_B;
     reg               s3_valid, s3_hsync, s3_vsync;
 
     always @(posedge clk) begin
-        s3_valid <= valid_sr[1];
+        s3_valid <= demo_vld;
         s3_hsync <= hsync_sr[1];
         /* First demosaic-valid beat after a write-side SOF carries frame SOF */
-        s3_vsync <= vsync_pend && valid_sr[1];
-        // bayer_fmt reserved; RGGB via row/col parity
-        case ({rpar_sr[1], cpar_sr[1]})
-            2'b00: begin
-                s3_R <= lbm_rd;
-                s3_G <= avg_cross[PIXEL_W+1:2];
-                s3_B <= avg_diag[PIXEL_W+1:2];
-            end
-            2'b01: begin
-                s3_R <= avg_WE_mid[PIXEL_W:1];
-                s3_G <= lbm_rd;
-                s3_B <= avg_NS[PIXEL_W:1];
-            end
-            2'b10: begin
-                s3_R <= avg_NS[PIXEL_W:1];
-                s3_G <= lbm_rd;
-                s3_B <= avg_WE_mid[PIXEL_W:1];
-            end
-            2'b11: begin
+        s3_vsync <= vsync_pend && demo_vld;
+        /* N25b: BGGR-native cases; centre = lbm_prev (same-colour passthrough). */
+        case (bayer_sel)
+            2'b00: begin /* B */
                 s3_R <= avg_diag[PIXEL_W+1:2];
                 s3_G <= avg_cross[PIXEL_W+1:2];
-                s3_B <= lbm_rd;
+                s3_B <= cen;
+            end
+            2'b01: begin /* Gb */
+                s3_R <= avg_NS[PIXEL_W:1];
+                s3_G <= cen;
+                s3_B <= avg_WE[PIXEL_W:1];
+            end
+            2'b10: begin /* Gr */
+                s3_R <= avg_WE[PIXEL_W:1];
+                s3_G <= cen;
+                s3_B <= avg_NS[PIXEL_W:1];
+            end
+            2'b11: begin /* R */
+                s3_R <= cen;
+                s3_G <= avg_cross[PIXEL_W+1:2];
+                s3_B <= avg_diag[PIXEL_W+1:2];
             end
         endcase
     end
